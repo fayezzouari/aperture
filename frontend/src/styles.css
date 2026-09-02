@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+/*
+  Aperture is an operations console: it is read at 2am while something is on
+  fire, so the visual system is deliberately quiet. Near-black surfaces,
+  hairline borders, one accent, and data in a monospace face - colour is
+  reserved for state (ok / warning / critical) and for chart series, never for
+  decoration.
+
+  Chart series colours come from the validated data-viz palette (dark steps),
+  not from the UI accent, so a legend colour never collides with a status colour.
+*/
+
+@theme {
+  --color-ink: #ededed;
+  --color-ink-2: #a1a1a6;
+  --color-ink-3: #6e6e73;
+  --color-surface: #000000;
+  --color-panel: #0a0a0a;
+  --color-raised: #111113;
+  --color-line: #232326;
+  --color-line-2: #2e2e33;
+  --color-accent: #0072f5;
+  --color-accent-ink: #ffffff;
+  --color-good: #2bd97c;
+  --color-warn: #f5a524;
+  --color-bad: #f31260;
+
+  /* validated categorical steps for the dark surface */
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+  /* validated ordinal ramp (p50 -> p99) */
+  --color-ramp-1: #cde2fb;
+  --color-ramp-2: #5598e7;
+  --color-ramp-3: #256abf;
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+
+  body {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  ::selection { background: color-mix(in oklab, var(--color-accent) 40%, transparent); }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+@layer components {
+  /* --- primitives ------------------------------------------------------- */
+
+  .panel {
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+  }
+
+  .hairline { border-color: var(--color-line); }
+
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    font-weight: 500;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+    height: 32px; padding: 0 12px; border-radius: 7px; font-size: 13px; font-weight: 500;
+    border: 1px solid var(--color-line-2); background: var(--color-raised); color: var(--color-ink);
+    transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
+    cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) { background: #1a1a1e; border-color: #3a3a40; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--color-ink); color: #0a0a0a; border-color: var(--color-ink); font-weight: 600; }
+  .btn-primary:hover:not(:disabled) { background: #ffffff; border-color: #ffffff; }
+  .btn-accent { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
+  .btn-accent:hover:not(:disabled) { background: #1e83ff; border-color: #1e83ff; }
+  .btn-danger { color: var(--color-bad); border-color: color-mix(in oklab, var(--color-bad) 40%, var(--color-line)); }
+  .btn-danger:hover:not(:disabled) { background: color-mix(in oklab, var(--color-bad) 12%, transparent); }
+  .btn-sm { height: 26px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--color-ink-2); }
+  .btn-ghost:hover:not(:disabled) { background: var(--color-raised); color: var(--color-ink); border-color: var(--color-line); }
+
+  .input, .select, .textarea {
+    width: 100%; height: 32px; padding: 0 10px; border-radius: 7px; font-size: 13px;
+    background: #08080a; border: 1px solid var(--color-line-2); color: var(--color-ink);
+  }
+  .textarea { height: auto; padding: 8px 10px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; }
+  .input::placeholder, .textarea::placeholder { color: var(--color-ink-3); }
+  .input:focus, .select:focus, .textarea:focus { border-color: #4a4a52; outline: none; }
+  .input:disabled, .select:disabled, .textarea:disabled,
+  fieldset:disabled .input, fieldset:disabled .select, fieldset:disabled .textarea {
+    background: #0c0c0e;
+    border-color: var(--color-line);
+    color: var(--color-ink-3);
+    cursor: not-allowed;
+  }
+  input[type="checkbox"]:disabled, input[type="range"]:disabled { cursor: not-allowed; opacity: 0.5; }
+  .select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, #6e6e73 50%), linear-gradient(135deg, #6e6e73 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px; }
+  input[type="checkbox"], input[type="radio"] {
+    accent-color: var(--color-accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+  input[type="range"] {
+    accent-color: var(--color-accent);
+    height: 4px;
+    cursor: pointer;
+  }
+
+  /* One toolbar treatment everywhere: filters live inside the panel they filter,
+     above the data, separated by the same hairline as a panel header. */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  /* A segmented control is the app's single answer to "pick one of a few". */
+  .segmented {
+    display: flex;
+    overflow: hidden;
+    border: 1px solid var(--color-line);
+    border-radius: 7px;
+  }
+  .segmented > button {
+    padding: 5px 11px;
+    font-size: 12.5px;
+    color: var(--color-ink-3);
+    transition: background 120ms ease, color 120ms ease;
+    white-space: nowrap;
+  }
+  .segmented > button:hover { color: var(--color-ink-2); }
+  .segmented > button[aria-pressed="true"], .segmented > button[aria-selected="true"] {
+    background: var(--color-raised);
+    color: var(--color-ink);
+  }
+
+  .field-label { display: block; font-size: 12px; color: var(--color-ink-2); margin-bottom: 5px; }
+  .hint { font-size: 11.5px; color: var(--color-ink-3); margin-top: 4px; line-height: 1.5; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px;
+    border-radius: 5px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--color-line-2);
+    color: var(--color-ink-2); background: var(--color-raised); white-space: nowrap;
+  }
+  .badge-good { color: var(--color-good); border-color: color-mix(in oklab, var(--color-good) 35%, transparent); background: color-mix(in oklab, var(--color-good) 10%, transparent); }
+  .badge-warn { color: var(--color-warn); border-color: color-mix(in oklab, var(--color-warn) 35%, transparent); background: color-mix(in oklab, var(--color-warn) 10%, transparent); }
+  .badge-bad { color: var(--color-bad); border-color: color-mix(in oklab, var(--color-bad) 40%, transparent); background: color-mix(in oklab, var(--color-bad) 10%, transparent); }
+  .badge-accent { color: #6cb2ff; border-color: color-mix(in oklab, var(--color-accent) 45%, transparent); background: color-mix(in oklab, var(--color-accent) 12%, transparent); }
+  .badge-tag { font-family: var(--font-mono); font-size: 11px; }
+
+  /* Named data-table, not "grid": Tailwind ships a .grid utility (display:grid)
+     and utilities win over components, which silently turned every table in the
+     app into a grid container. */
+  table.data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+  table.data-table th {
+    text-align: left; font-weight: 500; font-size: 11px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--color-ink-3); padding: 8px 12px;
+    border-bottom: 1px solid var(--color-line); background: var(--color-panel);
+    position: sticky; top: 0; z-index: 1;
+  }
+  table.data-table td { padding: 9px 12px; border-bottom: 1px solid #17171a; vertical-align: middle; }
+  table.data-table tbody tr:hover td { background: #0c0c0e; }
+  table.data-table tbody tr:last-child td { border-bottom: none; }
+
+  .link { color: var(--color-ink); text-decoration: none; border-bottom: 1px solid var(--color-line-2); }
+  .link:hover { border-bottom-color: var(--color-ink-2); }
+
+  /* Tables and wide data get a real scrollbar: you need to know there is more. */
+  .scroll-x { overflow-x: auto; }
+
+  /* Navigation does not. It stays swipeable on a narrow screen, but a scrollbar
+     track sitting under a row of links reads as broken chrome, not as content. */
+  .nav-x {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overscroll-behavior-x: contain;
+  }
+  .nav-x::-webkit-scrollbar { display: none; }
+  .scroll-x::-webkit-scrollbar, .scroll-y::-webkit-scrollbar { height: 8px; width: 8px; }
+  .scroll-x::-webkit-scrollbar-thumb, .scroll-y::-webkit-scrollbar-thumb { background: #2a2a30; border-radius: 4px; }
+
+  .skeleton { background: linear-gradient(90deg, #101013 25%, #17171b 50%, #101013 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-radius: 6px; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  /* the tag rail: a vertical line down the version list marking where each
+     movable tag currently points. It is the fastest answer to "what is live?" */
+  .rail { position: relative; }
+  .rail::before {
+    content: ""; position: absolute; left: 7px; top: 0; bottom: 0; width: 1px;
+    background: var(--color-line);
+  }
+  .rail-node { position: absolute; left: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-surface); border: 1.5px solid var(--color-ink-3); }
+  .rail-node-live { border-color: var(--color-good); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-good) 18%, transparent); }
+}
