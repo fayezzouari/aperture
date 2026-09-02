@@ -1,0 +1,51 @@
+[project]
+name = "aperture-api"
+version = "0.1.0"
+description = "Aperture control plane: registry, gateway, observability"
+requires-python = ">=3.11"
+dependencies = [
+    "aperture-core",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "gunicorn>=22.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "python-multipart>=0.0.9",
+    "redis>=5.0",
+    "arq>=0.26",
+    "boto3>=1.34",
+    "httpx>=0.27",
+    "pyjwt>=2.8",
+    "prometheus-client>=0.20",
+    "orjson>=3.10",
+    "numpy>=1.26",
+    "pillow>=10.3",
+    "reportlab>=4.2",
+    "ldap3>=2.9",
+    "opentelemetry-api>=1.25",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-exporter-otlp-proto-http>=1.25",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-instrumentation-httpx>=0.46b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.46b0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5", "aiosqlite>=0.20"]
+
+[tool.uv.sources]
+aperture-core = { path = "../core", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
