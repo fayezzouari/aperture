@@ -1,0 +1,350 @@
+# Aperture - self-hosted computer-vision model serving.
+#
+#   docker compose up -d --build
+#   open http://localhost:8080   (admin@localhost / aperture)
+#
+# Profiles:
+#   observability  prometheus + grafana
+#   tracing        otel collector + jaeger
+#   gpu            a CUDA runtime instead of the CPU one (see docker-compose.gpu.yml)
+
+x-api-env: &api-env
+  AP_ENV: ${AP_ENV:-dev}
+  AP_INSTANCE_NAME: ${AP_INSTANCE_NAME:-Aperture}
+  AP_PUBLIC_URL: ${AP_PUBLIC_URL:-http://localhost:8080}
+  AP_LOG_LEVEL: ${AP_LOG_LEVEL:-INFO}
+  AP_DATABASE_URL: postgresql+asyncpg://aperture:${POSTGRES_PASSWORD:-aperture}@postgres:5432/aperture
+  AP_REDIS_URL: redis://redis:6379/0
+  AP_S3_ENDPOINT: http://minio:9000
+  AP_S3_PUBLIC_ENDPOINT: ${AP_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  AP_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-aperture}
+  AP_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aperture-secret}
+  # SSE-S3 needs a KMS behind the object store; see README "Encryption at rest".
+  AP_S3_SSE: ${AP_S3_SSE:-}
+  AP_JWT_SECRET: ${AP_JWT_SECRET:-dev-only-change-me}
+  AP_RUNTIME_INTERNAL_TOKEN: ${AP_RUNTIME_INTERNAL_TOKEN:-dev-only-runtime-token}
+  AP_BOOTSTRAP_ADMIN_EMAIL: ${AP_BOOTSTRAP_ADMIN_EMAIL:-admin@localhost}
+  AP_BOOTSTRAP_ADMIN_PASSWORD: ${AP_BOOTSTRAP_ADMIN_PASSWORD:-aperture}
+  AP_CAPTURE_SAMPLE_RATE: ${AP_CAPTURE_SAMPLE_RATE:-0.05}
+  AP_CAPTURE_RETENTION_DAYS: ${AP_CAPTURE_RETENTION_DAYS:-30}
+  AP_OTEL_ENABLED: ${AP_OTEL_ENABLED:-false}
+  AP_OTEL_ENDPOINT: http://otel-collector:4318
+  AP_OIDC_ENABLED: ${AP_OIDC_ENABLED:-false}
+  AP_OIDC_ISSUER: ${AP_OIDC_ISSUER:-}
+  AP_OIDC_CLIENT_ID: ${AP_OIDC_CLIENT_ID:-}
+  AP_OIDC_CLIENT_SECRET: ${AP_OIDC_CLIENT_SECRET:-}
+  AP_LDAP_ENABLED: ${AP_LDAP_ENABLED:-false}
+  AP_LDAP_URL: ${AP_LDAP_URL:-}
+  AP_SMTP_HOST: ${AP_SMTP_HOST:-}
+  AP_MAX_PAYLOAD_MB: ${AP_MAX_PAYLOAD_MB:-32}
+  AP_MAX_BATCH_IMAGES: ${AP_MAX_BATCH_IMAGES:-64}
+  AP_MAX_UPLOAD_MB: ${AP_MAX_UPLOAD_MB:-8192}
+  # Imports a trained model from a Roboflow project (weights + class names).
+  AP_ROBOFLOW_API_KEY: ${AP_ROBOFLOW_API_KEY:-}
+  # Roboflow-shaped /infer/workflows route, so a client already calling Roboflow
+  # moves over by changing a base URL. Off unless asked for.
+  AP_ROBOFLOW_COMPAT_ENABLED: ${AP_ROBOFLOW_COMPAT_ENABLED:-false}
+  AP_ROBOFLOW_COMPAT_WORKFLOWS: ${AP_ROBOFLOW_COMPAT_WORKFLOWS:-}
+
+x-depends: &core-deps
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  minio:
+    condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aperture
+      POSTGRES_USER: aperture
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aperture}
+      # inference_logs is append-heavy; these keep autovacuum honest
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - random_page_cost=1.1
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aperture -d aperture"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly keeps the inference-log stream across a restart; a capped
+    # stream bounds the memory it can take.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aperture}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aperture-secret}
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 6s
+      timeout: 4s
+      retries: 15
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-11-05T11-29-45Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aperture}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aperture-secret}
+    entrypoint: ["/bin/sh", "/init/minio-init.sh"]
+    volumes:
+      - ./deploy/minio:/init:ro
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      # pinned: the Dockerfile has a second (converter) stage, and Compose builds
+      # the *last* stage when no target is given
+      target: base
+    image: aperture/api:0.1.0
+    restart: unless-stopped
+    depends_on: *core-deps
+    environment: *api-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+  worker:
+    image: aperture/api:0.1.0
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *api-env
+    # arq: async jobs plus the cron ticks that reconcile the fleet, evaluate
+    # alerts, roll up drift windows and sweep expired captures.
+    command: ["arq", "app.jobs.worker.WorkerSettings"]
+    healthcheck:
+      # asserts the cron scheduler ticked recently, not just that a process exists
+      test: ["CMD", "python", "-m", "app.jobs.heartbeat", "/tmp/aperture-worker.alive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  logsink:
+    image: aperture/api:0.1.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *api-env
+    # Drains the inference-log stream into Postgres, off the request path.
+    command: ["python", "-m", "app.jobs.logsink"]
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.jobs.heartbeat", "/tmp/aperture-logsink.alive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  runtime:
+    build:
+      context: .
+      dockerfile: runtime/Dockerfile
+      target: cpu
+    image: aperture/runtime:0.1.0-cpu
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      AP_CONTROL_PLANE_URL: http://api:8000
+      AP_RUNTIME_INTERNAL_TOKEN: ${AP_RUNTIME_INTERNAL_TOKEN:-dev-only-runtime-token}
+      AP_S3_ENDPOINT: http://minio:9000
+      AP_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-aperture}
+      AP_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aperture-secret}
+      AP_DEVICE: ${AP_RUNTIME_DEVICE:-auto}
+      AP_MAX_LOADED_VERSIONS: ${AP_MAX_LOADED_VERSIONS:-8}
+      AP_INFER_WORKERS: ${AP_INFER_WORKERS:-2}
+      AP_CACHE_MAX_GB: ${AP_CACHE_MAX_GB:-32}
+      AP_LOG_LEVEL: ${AP_LOG_LEVEL:-INFO}
+    volumes:
+      - runtime-cache:/var/cache/aperture
+    # Replicas are how you add serving capacity; the scheduler spreads a
+    # deployment's replicas across distinct runtime containers.
+    deploy:
+      replicas: ${RUNTIME_REPLICAS:-2}
+
+  # ------------------------------------------------------------ torch profile
+  # A runtime that serves .pt directly - TorchScript, pickled modules and
+  # Ultralytics checkpoints - so converting to ONNX stays optional. Placement
+  # routes a .pt version here automatically, because runtimes advertise the
+  # formats they can load. Not in the default stack only because torch is
+  # ~2.5 GB an ONNX replica never touches:
+  #   docker compose --profile torch up -d runtime-torch
+  runtime-torch:
+    profiles: ["torch"]
+    build:
+      context: .
+      dockerfile: runtime/Dockerfile
+      target: torch
+    image: aperture/runtime:0.1.0-torch
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      AP_CONTROL_PLANE_URL: http://api:8000
+      AP_RUNTIME_INTERNAL_TOKEN: ${AP_RUNTIME_INTERNAL_TOKEN:-dev-only-runtime-token}
+      AP_S3_ENDPOINT: http://minio:9000
+      AP_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-aperture}
+      AP_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aperture-secret}
+      AP_DEVICE: ${AP_RUNTIME_DEVICE:-auto}
+      AP_MAX_LOADED_VERSIONS: ${AP_MAX_LOADED_VERSIONS:-4}
+      AP_INFER_WORKERS: ${AP_INFER_WORKERS:-2}
+      AP_CACHE_MAX_GB: ${AP_CACHE_MAX_GB:-32}
+      AP_LOG_LEVEL: ${AP_LOG_LEVEL:-INFO}
+    volumes:
+      - runtime-torch-cache:/var/cache/aperture
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: aperture/web:0.1.0
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+
+  # ---------------------------------------------------------- convert profile
+  # Only needed to convert weights (Ultralytics .pt -> ONNX, FP16/INT8). Left out
+  # of the default stack because torch and ultralytics add gigabytes that serving
+  # never touches:  docker compose --profile convert up -d converter
+  converter:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: converter
+    image: aperture/converter:0.1.0
+    profiles: ["convert"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment: *api-env
+    command: ["arq", "app.jobs.worker.ConverterSettings"]
+
+  # ----------------------------------------------------- observability profile
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    profiles: ["observability"]
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-aperture}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+  # ---------------------------------------------------------- tracing profile
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.113.0
+    profiles: ["tracing"]
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./deploy/otel:/etc/otel:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    profiles: ["tracing"]
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_PORT:-16686}:16686"
+
+volumes:
+  runtime-torch-cache:
+  postgres-data:
+  redis-data:
+  minio-data:
+  runtime-cache:
+  prometheus-data:
+  grafana-data:
