@@ -1,0 +1,24 @@
+# GPU overlay. Use together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Requires the NVIDIA container toolkit on the host.
+services:
+  runtime:
+    build:
+      context: .
+      dockerfile: runtime/Dockerfile
+      target: gpu
+    image: aperture/runtime:0.1.0-gpu
+    environment:
+      AP_DEVICE: cuda:0
+      AP_INFER_WORKERS: 1          # one CUDA stream per process keeps latency predictable
+      AP_MAX_LOADED_VERSIONS: 4
+    deploy:
+      replicas: ${RUNTIME_REPLICAS:-1}
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
