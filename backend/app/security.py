@@ -1,0 +1,152 @@
+"""Authentication, API keys and RBAC.
+
+Two separate identities exist:
+  * a *user* holds a short-lived JWT from SSO/LDAP/password login and drives the UI
+  * an *API key* belongs to a product, is scoped to specific models, and can only
+    reach the inference API
+
+Nothing lets an API key mutate the registry, and nothing lets a viewer deploy.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import logging
+import secrets
+import time
+from datetime import UTC, datetime, timedelta
+
+import jwt
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.errors import ApiError
+from app.models import ApiKey, Membership, User
+from app.settings import settings
+
+log = logging.getLogger("aperture.security")
+
+ROLE_ORDER = {"viewer": 0, "developer": 1, "admin": 2}
+SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
+
+
+# ------------------------------------------------------------------ passwords
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode(), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P,
+                        dklen=32)
+    return f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}${salt.hex()}${dk.hex()}"
+
+
+def verify_password(password: str, encoded: str | None) -> bool:
+    if not encoded:
+        return False
+    try:
+        scheme, n, r, p, salt_hex, hash_hex = encoded.split("$")
+        if scheme != "scrypt":
+            return False
+        dk = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=int(n), r=int(r),
+                            p=int(p), dklen=len(bytes.fromhex(hash_hex)))
+    except (ValueError, TypeError):
+        return False
+    return hmac.compare_digest(dk.hex(), hash_hex)
+
+
+# ----------------------------------------------------------------------- JWT
+
+
+def issue_token(user: User, memberships: dict[str, str]) -> tuple[str, int]:
+    now = int(time.time())
+    ttl = settings.jwt_ttl_minutes * 60
+    payload = {
+        "sub": user.id,
+        "email": user.email,
+        "name": user.name,
+        "sa": user.is_superadmin,
+        "roles": memberships,  # project_id -> role
+        "iat": now,
+        "exp": now + ttl,
+        "iss": "aperture",
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256"), ttl
+
+
+def decode_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"], issuer="aperture")
+    except jwt.ExpiredSignatureError as exc:
+        raise ApiError("unauthenticated", "session expired, sign in again") from exc
+    except jwt.InvalidTokenError as exc:
+        raise ApiError("unauthenticated", "invalid session token") from exc
+
+
+# ------------------------------------------------------------------ API keys
+
+
+def generate_api_key() -> tuple[str, str, str]:
+    """Returns (full_key, prefix, hash). The full key is shown exactly once."""
+    prefix = "ap_" + secrets.token_hex(4)
+    secret = secrets.token_urlsafe(32)
+    full = f"{prefix}.{secret}"
+    return full, prefix, hashlib.sha256(secret.encode()).hexdigest()
+
+
+def hash_api_secret(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
+
+
+async def resolve_api_key(session: AsyncSession, raw: str) -> ApiKey:
+    if "." not in raw:
+        raise ApiError("api_key_invalid", "malformed API key")
+    prefix, secret = raw.split(".", 1)
+    key = (
+        await session.execute(sa.select(ApiKey).where(ApiKey.prefix == prefix))
+    ).scalar_one_or_none()
+    if key is None or not hmac.compare_digest(key.key_hash, hash_api_secret(secret)):
+        raise ApiError("api_key_invalid", "API key not recognised")
+    if key.revoked_at is not None:
+        raise ApiError("api_key_revoked", "this API key was revoked")
+    if key.expires_at is not None and key.expires_at < datetime.now(UTC):
+        raise ApiError("api_key_expired", "this API key has expired")
+    return key
+
+
+def key_allows_model(key: ApiKey, model_id: str, model_slug: str) -> bool:
+    """R7.1 - a key reaches only the models it was issued for."""
+    scopes = key.scopes or []
+    if not scopes or "*" in scopes:
+        return True
+    return model_id in scopes or model_slug in scopes
+
+
+# --------------------------------------------------------------------- RBAC
+
+
+async def load_memberships(session: AsyncSession, user_id: str) -> dict[str, str]:
+    rows = (
+        await session.execute(
+            sa.select(Membership.project_id, Membership.role).where(Membership.user_id == user_id)
+        )
+    ).all()
+    return {project_id: role for project_id, role in rows}
+
+
+def require_role(roles: dict[str, str], project_id: str, minimum: str, *,
+                 superadmin: bool = False) -> None:
+    if superadmin:
+        return
+    role = roles.get(project_id)
+    if role is None:
+        raise ApiError("forbidden", "you are not a member of this project")
+    if ROLE_ORDER.get(role, -1) < ROLE_ORDER[minimum]:
+        raise ApiError(
+            "insufficient_role",
+            f"this action needs the '{minimum}' role, your role is '{role}'",
+        )
+
+
+def expires_at(days: int | None) -> datetime | None:
+    return datetime.now(UTC) + timedelta(days=days) if days else None
