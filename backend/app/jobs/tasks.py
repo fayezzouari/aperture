@@ -50,6 +50,9 @@ from app.services.gateway import (
 )
 from app.settings import settings
 
+from aperture_core.rfdetr import build as rfdetr_build
+from aperture_core.rfdetr import geometry_from_state_dict, rebuild_kwargs
+
 log = logging.getLogger("aperture.jobs")
 
 FRAME_BATCH = 8
@@ -308,50 +311,17 @@ async def convert_version(ctx: dict, job_id: str) -> dict:
 def _rfdetr_parameters(state: dict) -> dict:
     """Recover the training geometry from the weights themselves.
 
-    An RF-DETR checkpoint is a bare state_dict, so the architecture has to be
-    reconstructed before the weights mean anything - and the stock variants will
-    refuse a checkpoint trained with a different patch size. Every parameter
-    needed is implied by a tensor shape:
-
-      patch_size   the patch-embedding convolution's kernel
-      resolution   sqrt(position embeddings - 1) * patch_size
-      num_classes  the classification head's width, less the background slot
-      segmentation whether a mask head is present at all
+    The reading lives in `aperture_core.rfdetr` because the runtime needs the
+    same numbers to serve a `.pt` directly - one reader, so an export and a
+    direct load can never disagree about what the checkpoint is.
     """
-    tensors = state.get("model", state)
-    projection = next(
-        (value for key, value in tensors.items()
-         if "patch_embeddings.projection.weight" in key), None
-    )
-    positions = next(
-        (value for key, value in tensors.items()
-         if key.endswith("embeddings.position_embeddings")), None
-    )
-    head_width = max(
-        (tuple(value.shape)[0] for key, value in tensors.items()
-         if "class_embed" in key and key.endswith("weight")),
-        default=None,
-    )
-
-    detected: dict = {"segmentation": any("segmentation_head" in key for key in tensors)}
-    if projection is not None:
-        detected["patch_size"] = int(projection.shape[-1])
-        detected["backbone_dim"] = int(projection.shape[0])
-    if positions is not None and "patch_size" in detected:
-        grid = int(round((int(positions.shape[1]) - 1) ** 0.5))
-        detected["grid"] = grid
-        detected["resolution"] = grid * detected["patch_size"]
-    if head_width:
-        # the head carries one slot per class plus a background slot
-        detected["head_width"] = int(head_width)
-        detected["num_classes"] = int(head_width) - 1
-    return detected
+    return geometry_from_state_dict(state)
 
 
 def _convert_rfdetr(source_path: str, workdir: str, params: dict) -> tuple[str, str, str, dict]:
     """Rebuild an RF-DETR checkpoint with its own package and export ONNX."""
     try:
-        import rfdetr
+        import rfdetr  # noqa: F401  - imported by `rfdetr_build`; checked here for the message
         import torch
     except ImportError as exc:
         raise RuntimeError(
@@ -363,46 +333,13 @@ def _convert_rfdetr(source_path: str, workdir: str, params: dict) -> tuple[str, 
     detected = _rfdetr_parameters(state)
     log.info("recovered rf-detr geometry from the weights", extra=detected)
 
-    missing = [key for key in ("patch_size", "resolution", "num_classes") if key not in detected]
-    if missing:
-        raise RuntimeError(
-            "could not read " + ", ".join(missing) + " out of these weights, so the "
-            "architecture cannot be rebuilt. Export ONNX from your RF-DETR training code."
-        )
-
-    segmentation = detected["segmentation"]
-    # Seg checkpoints only load into a Seg class, and vice versa; within each
-    # family the variants differ by backbone size, which the explicit patch_size
-    # and resolution override anyway.
-    candidates = (["RFDETRSegPreview", "RFDETRSegSmall", "RFDETRSegMedium", "RFDETRSegLarge"]
-                  if segmentation else
-                  ["RFDETRBase", "RFDETRSmall", "RFDETRMedium", "RFDETRLarge", "RFDETRNano"])
-
-    kwargs = {
-        "patch_size": detected["patch_size"],
-        "resolution": detected["resolution"],
-        "num_classes": detected["num_classes"],
-    }
-    errors: list[str] = []
-    model = None
-    used = ""
-    for name in candidates:
-        factory = getattr(rfdetr, name, None)
-        if factory is None:
-            continue
-        try:
-            model = factory(pretrain_weights=source_path, device="cpu", **kwargs)
-            used = name
-            break
-        except Exception as exc:
-            errors.append(f"{name}: {str(exc)[:160]}")
-
-    if model is None:
-        raise RuntimeError(
-            "no RF-DETR variant accepted these weights with "
-            f"patch_size={kwargs['patch_size']}, resolution={kwargs['resolution']}, "
-            f"num_classes={kwargs['num_classes']}. Tried: " + " | ".join(errors[:3])
-        )
+    # `build` rebuilds and then *checks* the load: a variant that leaves
+    # checkpoint tensors unused is rejected rather than exported. Exporting a
+    # partial load is the worst of the failure modes - the ONNX serves, and only
+    # its scores say anything is wrong.
+    model, used, geometry = rfdetr_build(source_path, device="cpu", detected=detected)
+    detected = geometry
+    kwargs = rebuild_kwargs(geometry)
 
     model.export(output_dir=workdir, opset_version=params.get("opset", 17))
     produced = [name for name in os.listdir(workdir) if name.endswith(".onnx")]
@@ -1241,9 +1178,12 @@ async def import_roboflow(ctx: dict, job_id: str) -> dict:
             await session.flush()
 
             # Converting is still a separate version with this one as its parent,
-            # so the downloaded artifact stays on record either way.
+            # so the downloaded artifact stays on record either way. An RF-DETR
+            # state_dict is servable now, but only on a runtime carrying rfdetr -
+            # so the export still runs, and the import lands with both.
             follow_on = None
-            if params.get("convert", True) and not artifact.servable:
+            needs_export = not artifact.servable or artifact.kind == "state_dict"
+            if params.get("convert", True) and needs_export:
                 from app.jobs.queue import QUEUE_CONVERT, enqueue
 
                 convert_job = Job(

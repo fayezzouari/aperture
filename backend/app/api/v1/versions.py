@@ -150,9 +150,15 @@ async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
     from app.jobs.queue import QUEUE_CONVERT, enqueue, worker_alive
 
     artifact = version.artifact_info or {}
-    if artifact.get("usability") != "convertible":
+    # An RF-DETR state_dict is servable, but only where `rfdetr` is installed, so
+    # it belongs in this path too: on a fleet without it, the upload is the same
+    # dead end a convertible artifact would be.
+    exportable = artifact.get("usability") == "convertible" or (
+        artifact.get("kind") == "state_dict" and artifact.get("family") == "rf-detr"
+    )
+    if not exportable:
         return None
-    if await _fleet_can_load(session, version.artifact_format):
+    if await _fleet_can_load(session, version.artifact_format, artifact):
         return None
     if not await worker_alive(QUEUE_CONVERT):
         return None
@@ -182,13 +188,14 @@ async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
     return job
 
 
-async def _fleet_can_load(session: AsyncSession, fmt: str | None) -> bool:
-    """Is there a live runtime whose image can execute this artifact format?"""
-    if not fmt:
-        return True
-    from app.services.deployer import _can_load, _fresh_runtimes
+async def _fleet_can_load(session: AsyncSession, fmt: str | None,
+                          artifact: dict | None = None) -> bool:
+    """Is there a live runtime whose image can execute this artifact?"""
+    from app.services.deployer import _can_load, _fresh_runtimes, _requirement
 
-    return any(_can_load(runtime, fmt) for runtime in await _fresh_runtimes(session))
+    if not _requirement(fmt, artifact):
+        return True
+    return any(_can_load(runtime, fmt, artifact) for runtime in await _fresh_runtimes(session))
 
 
 def _artifact_format(filename: str, declared: str) -> str:

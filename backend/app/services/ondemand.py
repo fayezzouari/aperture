@@ -124,13 +124,14 @@ async def ensure_serving(session: AsyncSession, project: Project, model: Model,
     )
 
 
-async def _fleet_can_load(session: AsyncSession, fmt: str | None) -> bool:
-    """Is a live runtime's image able to execute this artifact format?"""
-    if not fmt:
-        return True
-    from app.services.deployer import _can_load, _fresh_runtimes
+async def _fleet_can_load(session: AsyncSession, fmt: str | None,
+                          artifact: dict | None = None) -> bool:
+    """Is a live runtime's image able to execute this artifact?"""
+    from app.services.deployer import _can_load, _fresh_runtimes, _requirement
 
-    return any(_can_load(runtime, fmt) for runtime in await _fresh_runtimes(session))
+    if not _requirement(fmt, artifact):
+        return True
+    return any(_can_load(runtime, fmt, artifact) for runtime in await _fresh_runtimes(session))
 
 async def _ready(session: AsyncSession, deployment_id: str) -> bool:
     count = (

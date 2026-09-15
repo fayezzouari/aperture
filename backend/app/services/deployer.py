@@ -41,12 +41,29 @@ _FORMAT_ALIASES = {
 }
 
 
-def _can_load(runtime, fmt: str | None) -> bool:
-    """Can this runtime's image actually execute that artifact format?"""
+def _requirement(fmt: str | None, artifact: dict | None) -> tuple[str, ...]:
+    """What a runtime must advertise to load this particular artifact.
+
+    Format alone is too coarse for a `.pt`: torch is enough for a TorchScript
+    archive or an Ultralytics checkpoint, while an RF-DETR state_dict has no
+    graph and needs the `rfdetr` package to be rebuilt from its layer shapes.
+    Placing one on a torch-only replica would fail at load, one replica at a
+    time, with nothing saying why.
+    """
+    info = artifact or {}
+    if info.get("kind") == "state_dict" and info.get("family") == "rf-detr":
+        return ("rfdetr",)
     if not fmt:
+        return ()
+    return _FORMAT_ALIASES.get(fmt.lower(), (fmt.lower(),))
+
+
+def _can_load(runtime, fmt: str | None, artifact: dict | None = None) -> bool:
+    """Can this runtime's image actually execute that artifact?"""
+    wanted = _requirement(fmt, artifact)
+    if not wanted:
         return True
     advertised = tuple((runtime.metrics or {}).get("formats") or _ASSUMED_FORMATS)
-    wanted = _FORMAT_ALIASES.get(fmt.lower(), (fmt.lower(),))
     return any(name in advertised for name in wanted)
 
 
@@ -105,15 +122,17 @@ async def reconcile(session: AsyncSession) -> dict:
         if a.runtime_id in load and a.state in ACTIVE_STATES:
             load[a.runtime_id] += 1
 
-    artifact_formats = dict(
-        (
+    version_artifacts = {
+        version_id: (fmt, info)
+        for version_id, fmt, info in (
             await session.execute(
-                sa.select(ModelVersion.id, ModelVersion.artifact_format).where(
+                sa.select(ModelVersion.id, ModelVersion.artifact_format,
+                          ModelVersion.artifact_info).where(
                     ModelVersion.id.in_([d.version_id for d in deployments])
                 )
             )
         ).all()
-    ) if deployments else {}
+    } if deployments else {}
 
     created = removed = 0
     for deployment in deployments:
@@ -133,18 +152,21 @@ async def reconcile(session: AsyncSession) -> dict:
 
         if len(current) < want:
             taken = {a.runtime_id for a in current}
-            fmt = artifact_formats.get(deployment.version_id)
+            fmt, artifact = version_artifacts.get(deployment.version_id, (None, None))
             candidates = [
                 r for r in runtimes
                 if r.id not in taken and _device_fits(deployment, r) and r.status == "ready"
-                and _can_load(r, fmt)
+                and _can_load(r, fmt, artifact)
             ]
-            if not candidates and fmt and not any(_can_load(r, fmt) for r in runtimes):
+            if (not candidates and _requirement(fmt, artifact)
+                    and not any(_can_load(r, fmt, artifact) for r in runtimes)):
                 # Say which capability is missing. "waiting for a runtime with
                 # capacity" sends people looking for the wrong problem.
+                needs = " or ".join(_requirement(fmt, artifact))
                 deployment.status_detail = (
-                    f"no runtime can load a '{fmt}' artifact - start one that can "
-                    f"(docker compose --profile torch up -d runtime-torch), or convert the weights"
+                    f"no runtime advertises '{needs}', so a '{fmt}' artifact cannot be loaded - "
+                    f"start one that can (docker compose --profile torch up -d runtime-torch), "
+                    f"or convert the weights"
                 )
             # least-loaded first; GPU runtimes win ties for an "auto" deployment
             candidates.sort(
