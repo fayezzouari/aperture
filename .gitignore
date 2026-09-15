@@ -36,3 +36,8 @@ scripts/mask-fidelity/.build/
 .DS_Store
 .idea/
 .vscode/
+
+# landing page (Vite + React)
+landing/node_modules/
+landing/dist/
+landing/tsconfig.tsbuildinfo

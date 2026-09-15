@@ -89,6 +89,7 @@ lint: ## Ruff over the Python, tsc over the frontend
 	cd backend && uv run ruff check app
 	cd runtime && uv run ruff check runtime || true
 	cd frontend && npx tsc -b --noEmit
+	cd landing && npx tsc -b --noEmit
 
 .PHONY: openapi
 openapi: ## Write the OpenAPI document to openapi.json
