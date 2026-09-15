@@ -266,6 +266,19 @@ services:
     ports:
       - "${WEB_PORT:-8080}:8080"
 
+  # ------------------------------------------------------- landing profile
+  # The public landing page. Static, no API access, not part of the default
+  # stack:  docker compose --profile landing up -d landing
+  landing:
+    profiles: ["landing"]
+    build:
+      context: .
+      dockerfile: landing/Dockerfile
+    image: aperture/landing:0.1.0
+    restart: unless-stopped
+    ports:
+      - "${LANDING_PORT:-8081}:8081"
+
   # ---------------------------------------------------------- convert profile
   # Only needed to convert weights (Ultralytics .pt -> ONNX, FP16/INT8). Left out
   # of the default stack because torch and ultralytics add gigabytes that serving
