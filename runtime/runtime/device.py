@@ -34,6 +34,11 @@ def formats() -> list[str]:
     except ImportError:
         pass
     try:
+        import rfdetr  # noqa: F401
+        found += ["rfdetr"]
+    except ImportError:
+        pass
+    try:
         import tensorrt  # noqa: F401
         found += ["tensorrt", "engine", "plan"]
     except ImportError:
