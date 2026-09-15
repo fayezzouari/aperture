@@ -180,19 +180,23 @@ def _classify_torch_pickle(blob: bytes) -> ArtifactInfo:
 
     if family == "rf-detr":
         # A state_dict has no graph, but RF-DETR's own package can rebuild the
-        # architecture from the layer shapes and export it — so Aperture converts
-        # this one rather than handing the problem back.
+        # architecture from the layer shapes — so this one is served as it is on
+        # a runtime that has `rfdetr`, and converted for anywhere else. Both
+        # paths go through the same rebuild, so the ONNX and the .pt are the same
+        # model; converting is for dropping the torch dependency, not for making
+        # the weights work.
         segmentation = b"segmentation_head" in blob
         return ArtifactInfo(
-            kind="state_dict", usability=CONVERTIBLE, family=family,
+            kind="state_dict", usability=SERVABLE, family=family,
             suggested_preset="rf-detr-seg" if segmentation else "rf-detr",
             detail=("An RF-DETR segmentation state_dict: tensors only, but the layer shapes "
                     "carry the architecture." if segmentation else
                     "An RF-DETR state_dict: tensors only, but the layer shapes carry the "
                     "architecture."),
-            next_step="Convert it — Aperture reads the patch size, input resolution and class "
-                      "count out of the weights, rebuilds the model with RF-DETR and exports "
-                      "ONNX. The result arrives as a new draft version with a config to match.",
+            next_step="Deploy it on a runtime with the rfdetr package "
+                      "(docker compose --profile torch up -d runtime-torch), which rebuilds the "
+                      "model from the weights and serves it. Converting to ONNX is the other "
+                      "option: same rebuild, no torch dependency, and usually faster.",
             export_snippet=snippet,
             evidence=evidence + (["segmentation_head"] if segmentation else []),
         )
