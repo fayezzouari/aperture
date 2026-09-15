@@ -27,6 +27,47 @@ asserts the guarantees below (65 checks).
 
 ---
 
+## A look around
+
+Screenshots from a running instance. Model names are blurred; everything else
+is as the console renders it. `landing/` is a one-page React tour built from
+the same images (`cd landing && npm install && npm run dev`, or
+`docker compose --profile landing up -d landing` for nginx on :8081).
+
+![Overview: requests, error rate, p95 latency, replicas ready, latency over time and recent failures](docs/screenshots/overview.png)
+
+**Models** — every model in the project, what is live and how it is behaving.
+
+![Models: a table of models with task, tags, live version, replicas, requests, errors and p95](docs/screenshots/models.png)
+
+**Versions** — published weights are immutable. A PyTorch `state_dict` can be
+converted to ONNX in place; the result arrives as a new draft version.
+
+![Model detail: a converted ONNX draft and the imported PyTorch weights with a Convert to ONNX action](docs/screenshots/model-detail.png)
+
+**Workflow editor** — several models drawn as one graph and served as one
+endpoint. Gates route on request fields, each result lands under its own key.
+
+![Workflow editor: an input node fanning out to gates, model nodes and result nodes](docs/screenshots/workflow-editor.png)
+
+**Jobs** and **Fleet** — long work off the inference path, and every runtime
+with what it holds and when it last reported.
+
+![Jobs: conversion and import jobs with status, result notes and duration](docs/screenshots/jobs.png)
+
+![Fleet: runtime cards with slots used, execution provider and last heartbeat](docs/screenshots/fleet.png)
+
+**API keys** and **Audit** — one key per product, scoped to the models it
+calls; every mutating action, append-only.
+
+![API keys: keys with prefix, scope, rate limit, usage and last used](docs/screenshots/keys.png)
+
+![Audit log: timestamped actions with actor, target, detail and IP](docs/screenshots/audit.png)
+
+Regenerate with `scripts/screenshots.py` against a running stack.
+
+---
+
 ## What it is
 
 Four processes and three stores. Nothing calls out to the internet at runtime.
@@ -488,6 +529,7 @@ backend/    FastAPI control plane + gateway, arq worker, log sink, migrations
 runtime/    the serving process: weight cache, backends (ONNX/TorchScript/
             TensorRT), dynamic batcher, heartbeat client
 frontend/   React + Vite UI
+landing/    React + Vite landing page, built from docs/screenshots
 deploy/     Prometheus, Grafana dashboard, OTel collector, MinIO bootstrap
 scripts/    end-to-end suite, demo seeder, SDK generation
 sdk/        hand-written Python and TypeScript clients
