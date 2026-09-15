@@ -103,7 +103,7 @@ services:
       retries: 12
 
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+    image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -122,7 +122,7 @@ services:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
 
   minio-init:
-    image: minio/mc:RELEASE.2024-11-05T11-29-45Z
+    image: quay.io/minio/mc:RELEASE.2024-11-05T11-29-45Z
     depends_on:
       minio:
         condition: service_healthy
