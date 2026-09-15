@@ -19,9 +19,10 @@ CELLS = "/Users/fayez/projects/fiasco/cells-detection"
 # (path, expected kind, expected usability, expected family, expected preset)
 REAL = [
     (f"{CELLS}/yolo11l-seg.pt", "ultralytics", CONVERTIBLE, "yolo", "yolov8-seg"),
-    # RF-DETR weights carry no graph either, but rfdetr can rebuild the model from
-    # the layer shapes, so Aperture converts these rather than refusing them
-    (f"{CELLS}/rf-detr-seg-preview.pt", "state_dict", CONVERTIBLE, "rf-detr", "rf-detr-seg"),
+    # RF-DETR weights carry no graph either, but rfdetr rebuilds the model from
+    # the layer shapes - so a runtime carrying that package serves them as they
+    # are, and converting to ONNX is the alternative rather than the entry fee
+    (f"{CELLS}/rf-detr-seg-preview.pt", "state_dict", SERVABLE, "rf-detr", "rf-detr-seg"),
     (f"{CELLS}/state_dict.pt", "state_dict", WEIGHTS_ONLY, "yolo", "yolov8"),
 ]
 
