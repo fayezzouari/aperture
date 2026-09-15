@@ -1,21 +1,30 @@
-"""PyTorch backend: TorchScript, a pickled module, or an Ultralytics checkpoint.
+"""PyTorch backend: TorchScript, a pickled module, an Ultralytics checkpoint, or
+an RF-DETR state_dict.
 
 ONNX is a *choice* here, not a toll gate. A `.pt` that carries a graph can be
 served as it is, on a runtime image that has torch - conversion is for people who
 want the smaller, faster, dependency-free artifact, not a tax on everyone.
 
-Three shapes of file arrive, and only the last is genuinely unservable:
+Four shapes of file arrive:
 
   TorchScript archive   a self-contained graph; `torch.jit.load` and run it
   pickled nn.Module     the object and its class; loadable when the class's
                         package is installed, which is why Ultralytics
                         checkpoints work on the torch image and not the slim one
-  bare state_dict       tensors with no graph and no class - nothing can execute
-                        this without the training code, so it is refused
+  RF-DETR state_dict    tensors with no graph, but the layer shapes carry the
+                        architecture and `rfdetr` can rebuild it - served when
+                        that package is installed, and only when every
+                        checkpoint tensor finds a home (see `aperture_core.rfdetr`)
+  bare state_dict       anything else with no graph and no recoverable
+                        architecture - nothing can execute it without the
+                        training code, so it is refused
 
 An Ultralytics checkpoint's eager forward returns the same tensors its ONNX
 export does, so the same decoder config reads both and results do not change
-with the artifact format.
+with the artifact format. RF-DETR's does too, with one difference the config has
+to carry: the ONNX exporter prepends a dead logit column and the eager head does
+not, so a version served as `.pt` wants `class_offset: 0` where its exported
+twin wants 1.
 """
 
 from __future__ import annotations
@@ -46,6 +55,10 @@ class TorchBackend(Backend):
         if device.startswith("cuda") and self.device.type == "cpu":
             log.warning("cuda requested but torch reports no CUDA device - running on CPU")
 
+        # RF-DETR's head answers as a dict that also carries the auxiliary
+        # decoder outputs; those are training signal, not predictions, so its
+        # outputs are picked by name rather than flattened.
+        self._rfdetr = False
         module = self._load(path)
         module.eval()
         self.fp16 = fp16 and self.device.type == "cuda"
@@ -87,6 +100,9 @@ class TorchBackend(Backend):
                     candidate = loaded[key]
                     break
             else:
+                rebuilt = self._rebuild(path, loaded)
+                if rebuilt is not None:
+                    return rebuilt
                 raise BackendLoadError(
                     "this .pt holds tensors but no model object, so nothing can execute it "
                     "without the training code. Export TorchScript or ONNX from the code that "
@@ -108,6 +124,49 @@ class TorchBackend(Backend):
                 log.info("could not fuse the module", extra={"error": str(exc)[:120]})
         return candidate.to(self.device)
 
+    def _rebuild(self, path: str, loaded: dict):
+        """A tensors-only checkpoint whose architecture is recoverable, rebuilt.
+
+        Only RF-DETR qualifies today, and only because its layer shapes state the
+        architecture unambiguously. Returns None when this is not one of those,
+        so the caller can raise the message it already has.
+        """
+        from aperture_core.rfdetr import geometry_from_state_dict, inner_module, tensors_of
+
+        tensors = tensors_of(loaded)
+        if not any("transformer.decoder" in key for key in tensors):
+            return None
+
+        detected = geometry_from_state_dict(loaded)
+        try:
+            from aperture_core.rfdetr import build as rfdetr_build
+
+            model, variant, geometry = rfdetr_build(path, device=str(self.device),
+                                                    detected=detected)
+        except ImportError as exc:
+            raise BackendLoadError(
+                "these are RF-DETR weights, which need the rfdetr package to rebuild. This "
+                "runtime image does not have it - start one that does "
+                "(docker compose --profile torch up -d runtime-torch), or convert to ONNX."
+            ) from exc
+        except Exception as exc:
+            raise BackendLoadError(
+                f"these RF-DETR weights could not be rebuilt: {str(exc)[:300]}"
+            ) from exc
+
+        module = inner_module(model)
+        if module is None:
+            raise BackendLoadError(
+                f"{variant} rebuilt, but its inner module could not be reached"
+            )
+        log.info("serving rf-detr weights directly",
+                 extra={"variant": variant,
+                        "dec_layers": geometry.get("dec_layers"),
+                        "num_queries": geometry.get("num_queries"),
+                        "resolution": geometry.get("resolution")})
+        self._rfdetr = True
+        return module.to(self.device)
+
     def infer(self, batch: np.ndarray,
               extra_inputs: dict[str, np.ndarray] | None = None) -> list[np.ndarray]:
         torch = self.torch
@@ -120,7 +179,7 @@ class TorchBackend(Backend):
         ]
         with torch.inference_mode():
             output = self.module(tensor, *extras)
-        flat = _flatten(output)
+        flat = _rfdetr_outputs(output) if self._rfdetr else _flatten(output)
         if not self.io.output_names:
             self.io.output_names = [f"output_{i}" for i in range(len(flat))]
         return [t.detach().float().cpu().numpy() for t in flat]
@@ -129,6 +188,26 @@ class TorchBackend(Backend):
         self.module = None
         if self.device.type == "cuda":
             self.torch.cuda.empty_cache()
+
+
+def _rfdetr_outputs(output) -> list:
+    """Boxes, logits, masks - in the order the `rf-detr` presets index them.
+
+    The head also returns `aux_outputs` and `enc_outputs`. Flattening the dict
+    would fold those in and shift every index, so the three that are predictions
+    are taken by name and the rest ignored.
+    """
+    from aperture_core.rfdetr import OUTPUT_ORDER
+
+    if not isinstance(output, dict):
+        return _flatten(output)
+    picked = [output[name] for name in OUTPUT_ORDER if name in output]
+    if not picked:
+        raise RuntimeError(
+            "this rf-detr head returned none of " + ", ".join(OUTPUT_ORDER) +
+            f" - got {sorted(output)}"
+        )
+    return picked
 
 
 def _flatten(output) -> list:
