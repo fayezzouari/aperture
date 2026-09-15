@@ -135,7 +135,7 @@ services:
     restart: "no"
 
   api:
-    build:
+    build: &api-build
       context: .
       dockerfile: backend/Dockerfile
       # pinned: the Dockerfile has a second (converter) stage, and Compose builds
@@ -149,6 +149,7 @@ services:
       - "${API_PORT:-8000}:8000"
 
   worker:
+    build: *api-build
     image: aperture/api:0.1.0
     restart: unless-stopped
     depends_on:
@@ -171,6 +172,7 @@ services:
       retries: 3
 
   logsink:
+    build: *api-build
     image: aperture/api:0.1.0
     restart: unless-stopped
     depends_on:
