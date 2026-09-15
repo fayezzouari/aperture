@@ -88,6 +88,20 @@ BLUR_JS = """
 }
 """
 
+NODE_BLUR_JS = """
+() => {
+  for (const node of document.querySelectorAll('.react-flow__node')) {
+    for (const el of node.querySelectorAll('span, p')) {
+      if (el.getAttribute('aria-hidden') === 'true') continue;   // the type icon
+      // Nested elements were already blurred by the name pass; un-blur them so
+      // the wrapper's single blur covers the whole line evenly.
+      for (const inner of el.querySelectorAll('span, p')) inner.style.filter = '';
+      el.style.filter = 'blur(5px)'; el.style.userSelect = 'none';
+    }
+  }
+}
+"""
+
 pages = [("login","/login",False),("overview","/",True),("models","/models",True)]
 if model_slug: pages.append(("model-detail", f"/models/{model_slug}", True))
 pages += [("workflows","/workflows",True)]
@@ -106,6 +120,10 @@ with sync_playwright() as p:
         if name=="login": continue
         pg.goto(BASE+path); pg.wait_for_load_state("networkidle"); pg.wait_for_timeout(1500)
         pg.evaluate(BLUR_JS, sorted(secrets))
+        if name == "workflow-editor":
+            # The whole body of every node on the canvas, not just the model
+            # names: gate conditions and result keys name the parts too.
+            pg.evaluate(NODE_BLUR_JS)
         pg.wait_for_timeout(200)
         pg.screenshot(path=f"{OUT}/{name}.png")
         print("shot", name, pg.url, file=sys.stderr)
