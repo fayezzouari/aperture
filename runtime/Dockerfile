@@ -89,10 +89,11 @@ CMD ["uvicorn", "runtime.main:app", "--host", "0.0.0.0", "--port", "9100", \
 
 
 # ------------------------------------------------------------------- torch ---
-# For serving .pt directly: TorchScript archives, pickled modules, and
-# Ultralytics checkpoints (whose classes have to be importable to unpickle).
-# Both packages come from the CPU wheel index - mixing indexes is what breaks
-# torchvision's custom ops.
+# For serving .pt directly: TorchScript archives, pickled modules, Ultralytics
+# checkpoints (whose classes have to be importable to unpickle), and RF-DETR
+# state_dicts (which rfdetr rebuilds from the layer shapes). Both torch packages
+# come from the CPU wheel index - mixing indexes is what breaks torchvision's
+# custom ops.
 FROM cpu AS torch
 
 USER root
@@ -102,7 +103,7 @@ USER root
 RUN uv pip install --python /app/.venv/bin/python \
         --index-url https://download.pytorch.org/whl/cpu \
         torch torchvision \
-    && uv pip install --python /app/.venv/bin/python ultralytics \
+    && uv pip install --python /app/.venv/bin/python ultralytics rfdetr \
     && uv pip uninstall --python /app/.venv/bin/python opencv-python \
     && uv pip install --python /app/.venv/bin/python opencv-python-headless \
     && rm -rf /root/.cache
