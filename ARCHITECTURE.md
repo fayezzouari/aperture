@@ -245,7 +245,9 @@ All of them are arq cron jobs in the worker. None of them touch the request path
 |---|---|---|
 | `core/smoke_test.py` | every decoder produces the right typed output, geometry round-trips, masks encode and decode, overlays render | synthetic tensors, no model needed |
 | `runtime/smoke_test.py` | a real ONNX model serves, requests from different callers batch together, a full queue refuses rather than piles up, deadlines are honoured, validation renders an overlay | a small ONNX graph built in the test |
-| `scripts/e2e.py` | the whole product, against real containers: chunked upload, checksum, validation, publish, deploy, predict, tag, retag, rollback, key scoping, rate limits, logging, audit, reports | `make e2e` |
+| `backend/tests/` | the control plane's auth plumbing: a personal access token acts as its owner, stops at revocation and expiry, dies with a deactivated owner, cannot mint another token, is not an API key, and is attributed in the audit log | the FastAPI app over a per-test SQLite file, no Redis or MinIO |
+| `mcp/tests/` | the agent tools: what each one sends, that responses are trimmed and paged, that overlays and captures come back as images, and that an API error becomes one actionable line | a fake `/v1` behind `httpx.MockTransport` |
+| `scripts/e2e.py` | the whole product, against real containers: chunked upload, checksum, validation, publish, deploy, predict, tag, retag, rollback, key scoping, rate limits, personal access tokens, the MCP server in-process, logging, audit, reports | `make e2e` |
 
 The end-to-end suite asserts the *guarantees*, not just the happy path: that an
 unvalidated version cannot be published, that a published config cannot be
