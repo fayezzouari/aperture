@@ -4,9 +4,10 @@ Every requirement from the brief, where it lives, and what state it is in.
 
 **Status key** — ✅ done and covered by a test · ◑ done, edges noted · ○ not built
 
-The 65-check end-to-end suite (`make e2e`) drives a running stack; the decoder
-and runtime suites (`make test`) cover the inference contract. Where a row cites
-a check, that check asserts the behaviour against real containers.
+The end-to-end suite (`make e2e`) drives a running stack; the decoder, runtime,
+backend and MCP suites (`make test`) cover the inference contract, the auth
+plumbing and the agent tools. Where a row cites a check, that check asserts the
+behaviour against real containers.
 
 ---
 
@@ -103,6 +104,26 @@ a check, that check asserts the behaviour against real containers.
 | R7.6 Retention policy and hard delete for captured images | M | ✅ | `tasks.py::retention_sweep`, `purge_captures` | Per-project retention, hourly sweep, on-demand purge, flagged records preserved. |
 | R7.7 Air-gap capable, no outbound calls at runtime | M | ✅ | throughout | Tracing off by default, no CDNs or external fonts in the UI, alerts only to destinations you name. |
 | R7.8 Sandboxing for custom code: resource limits, no host access | S | ◑ | `core/aperture_core/sandbox.py` | Separate `python -I` process, RLIMIT_AS/CPU/FSIZE/NPROC, import allowlist, no `open`, results crossed as `allow_pickle=False` npz. Honest limit: this is hardening, and the container is the real boundary — the file says so, and so does the UI. |
+
+---
+
+## 8. Agent access
+
+Added after the brief: an engineer's coding agent should be able to read the
+registry, the traffic and the log, and run an image through a model, without a
+second API surface to keep in step. The MCP server is a client of `/v1`, so
+every role check, rate limit and audit row is the one the console gets.
+
+| ID | Pri | Status | Where | Notes |
+|---|---|---|---|---|
+| R8.1 A long-lived credential that carries a person's roles | M | ✅ | `security.py::resolve_pat`, `api/v1/tokens.py`, `deps.py::principal_for_token` | Hashed at rest, shown once, self-service, revocable. Roles are re-read per request, so a membership change lands immediately; a deactivated owner disables every token they minted; a token cannot mint another. 15 tests in `backend/tests/test_tokens.py`. e2e: *"a token acts as the user who issued it"*, *"a revoked token stops working immediately"*, *"a token cannot mint further tokens"* |
+| R8.2 The registry, fleet, traffic and audit log as agent tools | M | ✅ | `mcp/aperture_mcp/tools/read.py` | 20 read-only tools, annotated `read_only_hint`, paged with `limit`/`offset`, each taking a per-call `project` override. Responses trimmed in `mcp/aperture_mcp/trim.py`. e2e: *"list_models through MCP shows the e2e model"*, *"get_overview through MCP reports the fleet"* |
+| R8.3 Run a model from an agent and see the result | M | ✅ | `mcp/aperture_mcp/tools/act.py`, `mcp/aperture_mcp/images.py` | `predict` and `run_workflow` take local paths, URLs, data URLs or base64 and return the runtime-rendered overlay as an image block, bounded to 1568 px. e2e: *"predict through MCP returns an overlay image"*, *"get_inference through MCP shows the captured image"* |
+| R8.4 Reference material without a tool call | S | ✅ | `mcp/aperture_mcp/resources.py` | `aperture://` resources for projects, model cards, version configs, presets, the config JSON schema (extracted from the OpenAPI document) and the document itself. |
+| R8.5 Which credential acted is visible in the audit log | S | ✅ | `audit.py::actor_type_var`, `deps.py::principal_for_token` | A row written under a token records `actor_type` `user:token` with the owner's email, set by a request-scoped contextvar so no route had to change. The audit page already badges any non-`user` actor. e2e: *"audit rows written under a token say so"* |
+| R8.6 Errors an agent can act on | S | ✅ | `mcp/aperture_mcp/errors.py` | Every failure becomes one line: the stable code, the message, the request id, and a hint (`ondemand=true`, `set APERTURE_PROJECT`, "create a token at …"). The token never appears in an error. |
+| R8.7 Remote transport (streamable HTTP, OAuth) | C | ○ | — | stdio only, deliberately: the server runs next to the agent, so `predict` resolves local file paths and no new authenticated endpoint is exposed. A hosted transport needs OAuth 2.1 and is a separate change. |
+| R8.8 Registry mutations from an agent (upload, publish, deploy, retag) | C | ○ | — | Read and run only. Shipping a version from an agent is worth doing behind explicit confirmation, and is not in this pass. |
 
 ---
 
