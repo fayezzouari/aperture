@@ -18,6 +18,7 @@ const Alerts = lazy(() => import("./pages/Alerts"));
 const Jobs = lazy(() => import("./pages/Jobs"));
 const Audit = lazy(() => import("./pages/Audit"));
 const Fleet = lazy(() => import("./pages/Fleet"));
+const Tokens = lazy(() => import("./pages/Tokens"));
 const Settings = lazy(() => import("./pages/Settings"));
 
 const NAV = [
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="/keys" element={<Keys />} />
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/account/tokens" element={<Tokens />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Shell>
@@ -136,6 +138,13 @@ function Shell({ children }: { children: React.ReactNode }) {
                   <p className="px-2.5 py-1.5 text-[11.5px] text-ink-3">
                     {me.data?.is_superadmin ? "Instance admin" : `Role: ${(active && me.data?.roles[projects.data?.find((p) => p.slug === active)?.id ?? ""]) ?? "viewer"}`}
                   </p>
+                  <Link
+                    to="/account/tokens"
+                    className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    Personal access tokens
+                  </Link>
                   <button
                     className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
                     onClick={() => {
