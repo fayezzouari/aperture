@@ -1,0 +1,31 @@
+[project]
+name = "aperture-mcp"
+version = "0.1.0"
+description = "Aperture's API as MCP tools for coding agents (stdio)"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=2.2,<3",
+    "httpx>=0.27",
+    "pillow>=10.3",
+]
+
+[project.scripts]
+aperture-mcp = "aperture_mcp.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aperture_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
