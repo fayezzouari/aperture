@@ -7,8 +7,8 @@ import onnx
 from onnx import TensorProto, helper, numpy_helper
 
 
-def build_yolo_onnx(path, nc=80, anchors=100):
-    """A graph with a YOLOv8-shaped head: (N, 4+nc, anchors), dynamic batch."""
+def build_yolo_onnx(path, nc=80, anchors=100, batch="N"):
+    """A graph with a YOLOv8-shaped head: (N, 4+nc, anchors), dynamic batch unless `batch` pins it."""
     const = np.full((1, 4 + nc, anchors), 0.01, np.float32)
     const[0, 0, :3], const[0, 1, :3], const[0, 2, :3], const[0, 3, :3] = 320, 240, 120, 90
     const[0, 4 + 2, :3] = 0.9  # class 2 = car
@@ -20,8 +20,8 @@ def build_yolo_onnx(path, nc=80, anchors=100):
     ]
     graph = helper.make_graph(
         nodes, "fake-yolo",
-        [helper.make_tensor_value_info("images", TensorProto.FLOAT, ["N", 3, 640, 640])],
-        [helper.make_tensor_value_info("output0", TensorProto.FLOAT, ["N", 4 + nc, anchors])],
+        [helper.make_tensor_value_info("images", TensorProto.FLOAT, [batch, 3, 640, 640])],
+        [helper.make_tensor_value_info("output0", TensorProto.FLOAT, [batch, 4 + nc, anchors])],
         [numpy_helper.from_array(np.array([1, 2, 3], np.int64), "axes"),
          numpy_helper.from_array(np.array([-1, 1, 1], np.int64), "shape"),
          numpy_helper.from_array(np.zeros((1, 1, 1), np.float32), "zero"),
@@ -209,8 +209,33 @@ async def main():
         checks.append(("wrong class count still validates and reports columns",
                        v2.get("ok") and v2["io"]["class_columns"] == 80, v2.get("errors")))
 
+        # 17 - a graph pinned to batch 1 never gets a coalesced or multi-image tensor
+        static_backend = OnnxBackend(build_yolo_onnx(os.path.join(tmp, "static.onnx"), batch=1),
+                                     device="cpu")
+        static = Loaded(version_id="v-static", model_slug="static", version=1, config=cfg,
+                        backend=static_backend)
+        static.batcher = Batcher(version_id="v-static", backend=static_backend,
+                                 semaphore=store._semaphore, max_batch_size=8, max_wait_ms=25,
+                                 max_queue_depth=16)
+        static.batcher.reconfigure({"max_batch_size": 8})
+        await static.batcher.start()
+        static.state = "ready"
+        store.models["v-static"] = static
+        responses = await asyncio.gather(*[
+            c.post("/v1/infer", headers=headers, json={
+                "request_id": f"s{i}", "version_id": "v-static",
+                "images": [{"b64": b64, "name": f"{j}.jpg"} for j in range(1 + i % 3)],
+                "deadline_ms": 15000}) for i in range(6)])
+        counts = [len(x.json().get("results", [])) if x.status_code == 200 else x.text[:120]
+                  for x in responses]
+        checks.append(("static batch-1 graph serves concurrent and multi-image requests",
+                       all(x.status_code == 200 for x in responses)
+                       and counts == [1 + i % 3 for i in range(6)]
+                       and static.batcher.max_batch_size == 1, counts))
+
         await slow.drain()
         await entry.batcher.drain()
+        await static.batcher.drain()
 
     failed = 0
     for name, ok, detail in checks:
