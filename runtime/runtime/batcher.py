@@ -64,7 +64,12 @@ class Batcher:
         self.in_flight = 0
         self.batches = 0
         self.requests = 0
-        self.splittable = True
+        # a graph with a fixed batch axis of 1 runs one image per forward pass:
+        # never coalesce requests for it, and feed multi-image requests row by row
+        self.static = not getattr(backend, "supports_batching", True)
+        self.splittable = not self.static
+        if self.static:
+            self.max_batch_size = 1
         self._task: asyncio.Task | None = None
         self._stopping = False
 
@@ -77,7 +82,9 @@ class Batcher:
     def reconfigure(self, batching: dict) -> None:
         if not batching:
             return
-        self.max_batch_size = max(1, int(batching.get("max_batch_size", self.max_batch_size)))
+        if not self.static:
+            self.max_batch_size = max(1, int(batching.get("max_batch_size",
+                                                          self.max_batch_size)))
         self.max_wait_ms = max(0, int(batching.get("max_wait_ms", self.max_wait_ms)))
         self.max_queue_depth = max(1, int(batching.get("max_queue_depth", self.max_queue_depth)))
 
@@ -183,7 +190,7 @@ class Batcher:
         started = time.perf_counter()
         try:
             async with self.semaphore:
-                outputs = await asyncio.to_thread(self.backend.infer, tensor, extras or None)
+                outputs = await asyncio.to_thread(self._infer, tensor, extras or None)
             inference_ms = (time.perf_counter() - started) * 1000
 
             if len(alive) == 1:
@@ -213,6 +220,20 @@ class Batcher:
                     item.future.set_exception(exc)
         finally:
             self.in_flight -= total
+
+    def _infer(self, tensor: np.ndarray, extras: dict[str, np.ndarray] | None
+               ) -> list[np.ndarray]:
+        if not self.static or tensor.shape[0] <= 1:
+            return self.backend.infer(tensor, extras)
+        # fixed batch axis: one forward pass per image, then stack the rows back up
+        rows = [
+            self.backend.infer(tensor[i:i + 1],
+                               {name: value[i:i + 1] for name, value in extras.items()}
+                               if extras else None)
+            for i in range(tensor.shape[0])
+        ]
+        return [np.concatenate([row[index] for row in rows], axis=0)
+                for index in range(len(rows[0]))]
 
     def _resolve(self, item: _Item, outputs: list[np.ndarray], inference_ms: float,
                  batch_executed: int) -> None:

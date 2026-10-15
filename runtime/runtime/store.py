@@ -205,6 +205,9 @@ class ModelStore:
         """Run the real pipeline shape a few times so the first real request is warm."""
         config = entry.config
         sizes = config.warmup.batch_sizes or [1]
+        if not entry.backend.supports_batching:
+            # a fixed batch axis only ever sees batch 1 - the batcher feeds it row by row
+            sizes = [1]
         iterations = max(config.warmup.iterations, 0)
         if not iterations:
             return
