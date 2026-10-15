@@ -53,8 +53,17 @@ def detr_logits(b, q=300, nc=80):
     l = np.full((b, q, nc), -8.0, np.float32); l[:, :2, 3] = 4.0; return l
 def detr_boxes(b, q=300):
     bx = np.tile(np.array([0.5, 0.5, 0.25, 0.3], np.float32), (b, q, 1)); return bx
-rd = run_pipeline([img], cfgd, fake([detr_logits, detr_boxes])).results[0].detections
-checks.append(("rf-detr detection", len(rd) >= 1 and rd[0].class_name == "motorcycle", rd[0].box if rd else None))
+def centred(d):
+    cx, cy = (d.box[0] + d.box[2]) / 2, (d.box[1] + d.box[3]) / 2
+    return abs(cx - 320) < 2 and abs(cy - 240) < 2
+# RF-DETR exports (boxes, logits); the preset has to read them in that order
+rd = run_pipeline([img], cfgd, fake([detr_boxes, detr_logits])).results[0].detections
+checks.append(("rf-detr detection", len(rd) >= 1 and rd[0].class_name == "motorcycle"
+               and centred(rd[0]), rd[0].box if rd else None))
+# an export that emits (logits, boxes) is told apart by the 4-wide box axis
+rs = run_pipeline([img], cfgd, fake([detr_logits, detr_boxes])).results[0].detections
+checks.append(("rf-detr swapped outputs", len(rs) >= 1 and rs[0].class_name == "motorcycle"
+               and centred(rs[0]), rs[0].box if rs else None))
 
 # classification
 cfgc = preset_config("resnet-imagenet"); cfgc.classes = [f"c{i}" for i in range(1000)]
