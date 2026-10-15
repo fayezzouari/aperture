@@ -388,6 +388,20 @@ class AsyncJobIn(BaseModel):
     webhook_url: str | None = None
 
 
+SECRET_PARAM_HINTS = ("api_key", "apikey", "token", "password", "secret")
+
+
+def redact_secrets(value: Any) -> Any:
+    """Mask anything that looks like a credential, at any depth of a params dict."""
+    if isinstance(value, dict):
+        return {k: ("***" if v and any(h in str(k).lower() for h in SECRET_PARAM_HINTS)
+                    else redact_secrets(v))
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_secrets(v) for v in value]
+    return value
+
+
 class JobOut(ORMModel):
     id: str
     kind: str
@@ -401,6 +415,12 @@ class JobOut(ORMModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def _redact(cls, value: Any) -> Any:
+        # older rows (and any future job kind) may hold a credential; never echo one back
+        return redact_secrets(value or {})
 
 
 # --------------------------------------------------------------------- api keys
