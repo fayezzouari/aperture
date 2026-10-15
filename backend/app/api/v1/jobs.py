@@ -10,7 +10,7 @@ from app import audit, storage
 from app.db import get_session
 from app.deps import Page, Principal, current_user, get_model_or_404, pagination, project_dep
 from app.errors import ApiError
-from app.jobs.queue import enqueue
+from app.jobs.queue import submit
 from app.models import Job, Project
 from app.schemas import AsyncJobIn, JobOut
 from app.settings import settings
@@ -63,13 +63,13 @@ async def create_job(body: AsyncJobIn, request: Request, project: Project = Depe
                       "project_slug": project.slug})
     session.add(job)
     await session.flush()
-    await enqueue("run_inference_job", job.id)
     await audit.record(session, action="job.create", project_id=project.id, actor_id=principal.id,
                        actor_label=principal.label, target_type="job", target_id=job.id,
                        target_label=f"{body.kind} on {model.slug}",
                        payload={"kind": body.kind, "count": total},
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await submit(session, job, "run_inference_job")
     return JobOut.model_validate(job)
 
 
@@ -138,12 +138,12 @@ async def export_flagged(
                       "project_slug": project.slug})
     session.add(job)
     await session.flush()
-    await enqueue("export_flagged_dataset", job.id)
     await audit.record(session, action="capture.export", project_id=project.id,
                        actor_id=principal.id, actor_label=principal.label, target_type="job",
                        target_id=job.id, payload={"fmt": fmt, "since_hours": since_hours},
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await submit(session, job, "export_flagged_dataset")
     return JobOut.model_validate(job)
 
 
@@ -164,11 +164,11 @@ async def purge_captures(
                       "project_slug": project.slug, "requested_by": principal.label})
     session.add(job)
     await session.flush()
-    await enqueue("purge_captures", job.id)
     await audit.record(session, action="capture.purge", project_id=project.id,
                        actor_id=principal.id, actor_label=principal.label, target_type="job",
                        target_id=job.id,
                        payload={"before_hours": before_hours, "model_id": model_id},
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await submit(session, job, "purge_captures")
     return JobOut.model_validate(job)
