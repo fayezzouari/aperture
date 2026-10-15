@@ -251,8 +251,9 @@ def decode_detr(outputs: Outputs, cfg: ModelConfig, geoms: list[Geometry],
     pp = cfg.postprocess
     logits = _pick(outputs, cfg, "logits", 0)
     boxes_t = _pick(outputs, cfg, "boxes", 1)
-    if logits.shape[1] != boxes_t.shape[1]:
-        # some exporters emit (boxes, logits) - swap if the query axes disagree
+    if logits.shape[-1] == 4 and boxes_t.shape[-1] != 4:
+        # the config named the outputs the wrong way round: both tensors share the
+        # query axis, so only the last one (4 box coordinates) tells them apart
         logits, boxes_t = boxes_t, logits
     results = []
     for i in range(batch):
