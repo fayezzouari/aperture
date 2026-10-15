@@ -103,8 +103,15 @@ services:
       retries: 12
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z
+    # MinIO no longer publishes pullable images on quay.io or Docker Hub. Bitnami's
+    # frozen legacy archive carries the same RELEASE.2024-11-07T00-52-20Z build
+    # (commit cefc43e4), pinned by digest so the tag cannot move under us.
+    image: bitnamilegacy/minio:2024.11.7@sha256:81cd091fb9f14b2e9e9bfa6dbc2bf2d46fdd5eafa6c5e7c9213baf4256ff13d6
     restart: unless-stopped
+    # bypass Bitnami's wrapper scripts and run the server exactly as before; as root,
+    # so volumes written by the earlier upstream image stay readable
+    user: "0"
+    entrypoint: ["minio"]
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aperture}
@@ -122,7 +129,8 @@ services:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
 
   minio-init:
-    image: quay.io/minio/mc:RELEASE.2024-11-05T11-29-45Z
+    # same RELEASE.2024-11-05T11-29-45Z client build as the old upstream pin
+    image: bitnamilegacy/minio-client:2024.11.5@sha256:e25c5897d46782439d75874e49ad54b606f2b8b2f51128afaec9ae8cf7903806
     depends_on:
       minio:
         condition: service_healthy
