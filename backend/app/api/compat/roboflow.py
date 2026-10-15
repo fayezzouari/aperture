@@ -285,7 +285,8 @@ async def run_workflow(
     if managed is not None:
         params = {k: v for k, v in inputs.items() if k != "image"}
         engine = WorkflowEngine(session, project, request_id=request_id,
-                                response_format="roboflow", params=params)
+                                response_format="roboflow", params=params,
+                                api_key=principal.api_key)
         result = await engine.run(managed.published_graph, [image])
         if result.status != "ok":
             raise ApiError(result.error_code or "inference_failed",

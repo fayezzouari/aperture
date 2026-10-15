@@ -198,6 +198,8 @@ async def resolve_project(
         ).scalar_one_or_none()
         if found is None:
             raise ApiError("not_found", f"no project with slug '{slug}'")
+        # a slug is a request, not a grant: the caller still has to belong to it
+        principal.require(found.id, "viewer")
         return found
 
     readable = principal.readable_projects()

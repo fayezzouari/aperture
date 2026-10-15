@@ -1060,7 +1060,7 @@ def _artifact_format_for(filename: str) -> str:
             ".plan": "tensorrt"}.get(suffix, "other")
 
 
-async def import_roboflow(ctx: dict, job_id: str) -> dict:
+async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) -> dict:
     """Download a trained Roboflow model and land it as a ready Aperture version.
 
     This is the manual import written down: read the version's ordered class list,
@@ -1068,6 +1068,9 @@ async def import_roboflow(ctx: dict, job_id: str) -> dict:
     offset the conversion measured. Doing it by hand is where the mistakes live -
     a class list from the wrong version, or a dead leading logit column left
     unaccounted for, both mislabel every prediction while looking healthy.
+
+    `api_key` is the caller's own Roboflow key, passed with the task instead of
+    stored on the job. Jobs queued before that change still carry it in params.
     """
     async with SessionLocal() as session:
         job = await _start(session, job_id)
@@ -1079,7 +1082,7 @@ async def import_roboflow(ctx: dict, job_id: str) -> dict:
                 params["workspace"], params["project"], int(params["version"]))
             from aperture_core.artifacts import inspect_artifact
 
-            api_key = params.get("api_key") or settings.roboflow_api_key
+            api_key = api_key or params.get("api_key") or settings.roboflow_api_key
             if not api_key:
                 raise ApiError(
                     "invalid_config",
@@ -1181,11 +1184,10 @@ async def import_roboflow(ctx: dict, job_id: str) -> dict:
             # so the downloaded artifact stays on record either way. An RF-DETR
             # state_dict is servable now, but only on a runtime carrying rfdetr -
             # so the export still runs, and the import lands with both.
+            convert_job = None
             follow_on = None
             needs_export = not artifact.servable or artifact.kind == "state_dict"
             if params.get("convert", True) and needs_export:
-                from app.jobs.queue import QUEUE_CONVERT, enqueue
-
                 convert_job = Job(
                     project_id=project.id, kind="convert", status="queued",
                     created_by=job.created_by,
@@ -1197,7 +1199,6 @@ async def import_roboflow(ctx: dict, job_id: str) -> dict:
                 session.add(convert_job)
                 await session.flush()
                 follow_on = convert_job.id
-                await enqueue("convert_version", convert_job.id, queue=QUEUE_CONVERT)
 
             await _finish(session, job, result={
                 "model": model.slug, "new_version": number, "version_id": new_version.id,
@@ -1210,6 +1211,11 @@ async def import_roboflow(ctx: dict, job_id: str) -> dict:
                               "as a separate version" if follow_on else
                               "publish the version, then deploy it"),
             })
+            if convert_job is not None:
+                # only now is the follow-on row committed and visible to the converter
+                from app.jobs.queue import QUEUE_CONVERT, dispatch
+
+                await dispatch(session, convert_job, "convert_version", queue=QUEUE_CONVERT)
             return {"model": model.slug, "new_version": number}
         except Exception as exc:
             log.exception("roboflow import failed", extra={"job_id": job_id})

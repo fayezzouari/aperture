@@ -224,7 +224,9 @@ async def drift(version_id: str, windows: int = Query(48, ge=2, le=720),
         baseline = (
             await session.execute(
                 sa.select(DriftWindow)
-                .where(DriftWindow.version_id == version_id, DriftWindow.is_baseline.is_(True))
+                .where(DriftWindow.version_id == version_id,
+                       DriftWindow.project_id == project.id,
+                       DriftWindow.is_baseline.is_(True))
                 .order_by(DriftWindow.window_start.desc()).limit(1)
             )
         ).scalar_one_or_none()
@@ -256,10 +258,12 @@ async def set_baseline(version_id: str, window_start: datetime | None = None,
                        session: AsyncSession = Depends(get_session)) -> dict:
     principal.require(project.id, "developer")
     await session.execute(
-        sa.update(DriftWindow).where(DriftWindow.version_id == version_id)
+        sa.update(DriftWindow)
+        .where(DriftWindow.version_id == version_id, DriftWindow.project_id == project.id)
         .values(is_baseline=False)
     )
-    stmt = sa.select(DriftWindow).where(DriftWindow.version_id == version_id)
+    stmt = sa.select(DriftWindow).where(DriftWindow.version_id == version_id,
+                                        DriftWindow.project_id == project.id)
     if window_start:
         stmt = stmt.where(DriftWindow.window_start == window_start)
     target = (

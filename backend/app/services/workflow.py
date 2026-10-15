@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from aperture_core.formats import FORMATS, to_roboflow
 from aperture_core.results import ImageResult
 from app.errors import ApiError
+from app.security import key_allows_model
 from app.services.gateway import (
     InputImage,
     build_runtime_payload,
@@ -205,8 +206,9 @@ class WorkflowEngine:
     def __init__(self, session: AsyncSession, project, *, request_id: str,
                  trace_headers: dict[str, str] | None = None,
                  want_previews: bool = False, response_format: str = "aperture",
-                 params: dict | None = None):
+                 params: dict | None = None, api_key=None):
         self.session = session
+        self.api_key = api_key  # set when an API key called: model nodes honour its scope
         self.project = project
         self.request_id = request_id
         self.trace_headers = trace_headers or {}
@@ -325,6 +327,12 @@ class WorkflowEngine:
             )
 
         model = await get_model_or_404(self.session, self.project.id, data["model"])
+        if self.api_key is not None and not key_allows_model(self.api_key, model.id, model.slug):
+            raise ApiError(
+                "key_not_scoped_to_model",
+                f"this API key is not scoped to '{model.slug}'",
+                details={"model": model.slug},
+            )
         ref = data.get("ref") or "production"
         resolved, target, _ = await resolve_target(self.session, model, ref)
         overrides = sanitise_overrides(data.get("overrides"))

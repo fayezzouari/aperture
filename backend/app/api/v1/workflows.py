@@ -269,7 +269,7 @@ async def run_workflow(
                             trace_headers=traceparent,
                             want_previews=body.include_previews and principal.kind == "user",
                             response_format=(response_format or settings.default_response_format),
-                            params=body.params)
+                            params=body.params, api_key=principal.api_key)
     with telemetry.start_span("aperture.workflow", {"aperture.workflow": slug,
                                                     "aperture.images": len(images)}):
         result = await engine.run(graph, images)
