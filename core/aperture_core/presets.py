@@ -137,7 +137,7 @@ PRESETS: dict[str, dict[str, Any]] = {
                 "nms": False,
                 "score_threshold": 0.5,
                 "top_k": 300,
-                "output_index": {"logits": 0, "boxes": 1},
+                "output_index": {"boxes": 0, "logits": 1},
             },
             classes=COCO80,
         ),
