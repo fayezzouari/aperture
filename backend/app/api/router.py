@@ -15,12 +15,14 @@ from app.api.v1 import (
     projects,
     reports,
     tags,
+    tokens,
     versions,
     workflows,
 )
 
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
+v1.include_router(tokens.router)
 v1.include_router(projects.router)
 v1.include_router(models_api.router)
 v1.include_router(versions.router)

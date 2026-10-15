@@ -4,11 +4,13 @@ Walks the path a real team walks - create a model, upload weights in chunks,
 upload, publish, deploy, predict, tag, ship a second version, roll back - and
 asserts the guarantees the requirements ask for along the way.
 
-    uv run --with httpx --with onnx --with numpy --with pillow python scripts/e2e.py
+    uv run --with httpx --with onnx --with numpy --with pillow --with-editable ./mcp \
+        python scripts/e2e.py
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import io
@@ -395,6 +397,55 @@ def main() -> int:
           revoked.status_code == 200 and after_revoke.status_code == 401
           and after_revoke.json()["error"]["code"] == "api_key_revoked")
 
+    # ------------------------------------------------- personal access tokens
+    minted = client.post("/v1/auth/tokens", json={"name": "e2e-agent", "expires_in_days": 1})
+    check("issue a personal access token",
+          minted.status_code == 201 and minted.json()["token"].startswith("ap_pat_"))
+    pat = minted.json().get("token", "")
+    as_token = httpx.Client(base_url=BASE, timeout=60.0,
+                            headers={"authorization": f"Bearer {pat}",
+                                     "x-aperture-project": "default"})
+    me = as_token.get("/v1/auth/me")
+    check("a token acts as the user who issued it",
+          me.status_code == 200 and me.json().get("email") == EMAIL
+          and as_token.get("/v1/models").status_code == 200,
+          me.json().get("email", me.text[:80]))
+    token_predict = as_token.post(f"/v1/models/{SLUG}/production/predict",
+                                  files={"images": ("a.jpg", image_bytes)})
+    check("a token predicts as its owner, not as an API key",
+          token_predict.status_code == 200
+          and token_predict.headers.get("x-ratelimit-remaining") is None)
+    as_key = httpx.Client(base_url=BASE, timeout=30.0, headers={"x-api-key": pat})
+    misused = as_key.post(f"/v1/models/{SLUG}/production/predict",
+                          files={"images": ("a.jpg", image_bytes)})
+    check("a token in x-api-key is refused as an unknown key",
+          misused.status_code == 401
+          and misused.json()["error"]["code"] == "api_key_invalid")
+    minted_by_token = as_token.post("/v1/auth/tokens", json={"name": "child"})
+    check("a token cannot mint further tokens", minted_by_token.status_code == 403)
+
+    via_token = as_token.post("/v1/keys", json={"name": "e2e-via-token", "scopes": ["*"]})
+    if via_token.status_code == 201:
+        client.post(f"/v1/keys/{via_token.json()['id']}/revoke")
+    rows = client.get("/v1/audit", params={"action": "apikey.create", "since_hours": 1}).json()
+    attributed = [row for row in rows if row["target_label"] == "e2e-via-token"]
+    check("audit rows written under a token say so",
+          via_token.status_code == 201 and attributed
+          and attributed[0]["actor_type"] == "user:token"
+          and attributed[0]["actor_label"] == EMAIL,
+          attributed[0]["actor_type"] if attributed else via_token.text[:80])
+
+    revoked_token = client.post(f"/v1/auth/tokens/{minted.json()['id']}/revoke")
+    after = as_token.get("/v1/models")
+    check("a revoked token stops working immediately",
+          revoked_token.status_code == 200 and after.status_code == 401
+          and after.json()["error"]["code"] == "token_revoked")
+    listed = client.get("/v1/auth/tokens", params={"include_revoked": "true"}).json()
+    check("revoked tokens stay visible when asked for",
+          any(t["id"] == minted.json()["id"] and t["revoked_at"] for t in listed))
+    agent_token = client.post("/v1/auth/tokens",
+                              json={"name": "e2e-mcp", "expires_in_days": 1}).json()["token"]
+
     # ---------------------------------------------------------------- workflows
     # A second model so the workflow has two stages to chain.
     classifier_slug = f"{SLUG}-severity"
@@ -595,6 +646,10 @@ def main() -> int:
           runtimes.status_code == 200 and any(r["loaded"] for r in runtimes.json()),
           f"{len(runtimes.json())} runtimes")
 
+    # --------------------------------------------------------------------- mcp
+    captured_id = captured[0]["id"] if captured else None
+    mcp_checks(agent_token, image_path, captured_id)
+
     # ------------------------------------------------------------------ tidy up
     stop_v2 = client.get(f"/v1/models/{SLUG}/deployments").json()
     for deployment in stop_v2:
@@ -603,6 +658,56 @@ def main() -> int:
     failed = sum(1 for _, ok, _ in results if not ok)
     print(f"\n{len(results) - failed}/{len(results)} checks passed")
     return 1 if failed else 0
+
+
+def mcp_checks(token: str, image_path: str, captured_id: str | None) -> None:
+    """The MCP server, in-process, against the same stack: what an agent would see."""
+    try:
+        from aperture_mcp.server import build_server
+        from aperture_mcp.settings import Settings
+    except ImportError as exc:
+        check("the MCP server is importable", False, f"{exc} - run via scripts/e2e.sh")
+        return
+
+    async def run() -> None:
+        server = build_server(Settings(url=BASE, token=token, project="default"))
+        names = {tool.name for tool in await server.list_tools()}
+        check("the MCP server offers read tools and predict to a token",
+              {"list_models", "get_overview", "search_inferences", "predict"} <= names,
+              f"{len(names)} tools")
+
+        models = await server.call_tool("list_models", {"q": SLUG})
+        slugs = [row["slug"] for row in models.structured_content["items"]]
+        check("list_models through MCP shows the e2e model", SLUG in slugs, ", ".join(slugs))
+
+        card = await server.call_tool("get_model", {"ref": SLUG})
+        check("get_model through MCP returns tags, versions and deployments",
+              card.structured_content["model"]["tags"].get("production") is not None
+              and len(card.structured_content["versions"]) >= 2
+              and card.structured_content["deployments"])
+
+        predicted = await server.call_tool("predict", {"model": SLUG, "ref": "production",
+                                                       "images": [image_path]})
+        kinds = [block.type for block in predicted.content]
+        summary = json.loads(predicted.content[0].text) if kinds and kinds[0] == "text" else {}
+        pngs = [block for block in predicted.content if block.type == "image"
+                and base64.b64decode(block.data)[:4] == b"\x89PNG"]
+        check("predict through MCP returns an overlay image",
+              summary.get("model_version") in (1, 2) and len(pngs) == 1,
+              f"content={kinds}, version={summary.get('model_version')}")
+
+        if captured_id:
+            detail = await server.call_tool("get_inference", {"log_id": captured_id})
+            images = [block for block in detail.content if block.type == "image"]
+            check("get_inference through MCP shows the captured image",
+                  bool(images), f"{len(images)} image blocks")
+
+        overview = await server.call_tool("get_overview", {})
+        check("get_overview through MCP reports the fleet",
+              overview.structured_content["replicas_ready"] >= 1
+              and overview.structured_content["runtimes"])
+
+    asyncio.run(run())
 
 
 def reset_model(client: httpx.Client, slug: str) -> None:

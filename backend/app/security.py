@@ -1,9 +1,11 @@
-"""Authentication, API keys and RBAC.
+"""Authentication, API keys, personal access tokens and RBAC.
 
-Two separate identities exist:
-  * a *user* holds a short-lived JWT from SSO/LDAP/password login and drives the UI
-  * an *API key* belongs to a product, is scoped to specific models, and can only
-    reach the inference API
+Three credentials exist:
+  * a *session* is a short-lived JWT from SSO/LDAP/password login and drives the UI
+  * a *personal access token* (`ap_pat_...`) is a long-lived stand-in for the user
+    who issued it - same roles, same audit identity - for agents and scripts
+  * an *API key* (`ap_...`) belongs to a product, is scoped to specific models, and
+    can only reach the inference API
 
 Nothing lets an API key mutate the registry, and nothing lets a viewer deploy.
 """
@@ -22,13 +24,21 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import ApiError
-from app.models import ApiKey, Membership, User
+from app.models import ApiKey, Membership, PersonalAccessToken, User
 from app.settings import settings
 
 log = logging.getLogger("aperture.security")
 
 ROLE_ORDER = {"viewer": 0, "developer": 1, "admin": 2}
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2**14, 8, 1
+PAT_PREFIX = "ap_pat_"
+
+
+def aware_utc(value: datetime | None) -> datetime | None:
+    """SQLite hands back naive datetimes for timezone-aware columns; treat them as UTC."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 # ------------------------------------------------------------------ passwords
@@ -109,7 +119,8 @@ async def resolve_api_key(session: AsyncSession, raw: str) -> ApiKey:
         raise ApiError("api_key_invalid", "API key not recognised")
     if key.revoked_at is not None:
         raise ApiError("api_key_revoked", "this API key was revoked")
-    if key.expires_at is not None and key.expires_at < datetime.now(UTC):
+    expires = aware_utc(key.expires_at)
+    if expires is not None and expires < datetime.now(UTC):
         raise ApiError("api_key_expired", "this API key has expired")
     return key
 
@@ -120,6 +131,52 @@ def key_allows_model(key: ApiKey, model_id: str, model_slug: str) -> bool:
     if not scopes or "*" in scopes:
         return True
     return model_id in scopes or model_slug in scopes
+
+
+# ------------------------------------------------------- personal access tokens
+
+
+def is_pat(raw: str | None) -> bool:
+    return bool(raw) and raw.startswith(PAT_PREFIX)
+
+
+def generate_pat() -> tuple[str, str, str]:
+    """Returns (full_token, prefix, hash). Same shape as an API key, distinct prefix."""
+    prefix = PAT_PREFIX + secrets.token_hex(4)
+    secret = secrets.token_urlsafe(32)
+    return f"{prefix}.{secret}", prefix, hash_api_secret(secret)
+
+
+async def resolve_pat(session: AsyncSession, raw: str) -> tuple[PersonalAccessToken, User]:
+    """Resolve a personal access token to its row and owner, or raise a 401.
+
+    One query: the owner is joined in because every caller needs both, and the
+    inactive-owner check has to happen here so a deactivated account cannot keep
+    acting through tokens it minted earlier.
+    """
+    if "." not in raw:
+        raise ApiError("token_invalid", "malformed personal access token")
+    prefix, secret = raw.split(".", 1)
+    row = (
+        await session.execute(
+            sa.select(PersonalAccessToken, User)
+            .join(User, User.id == PersonalAccessToken.user_id)
+            .where(PersonalAccessToken.prefix == prefix)
+        )
+    ).first()
+    if row is None:
+        raise ApiError("token_invalid", "personal access token not recognised")
+    token, user = row
+    if not hmac.compare_digest(token.token_hash, hash_api_secret(secret)):
+        raise ApiError("token_invalid", "personal access token not recognised")
+    if token.revoked_at is not None:
+        raise ApiError("token_revoked", "this personal access token was revoked")
+    expires = aware_utc(token.expires_at)
+    if expires is not None and expires < datetime.now(UTC):
+        raise ApiError("token_expired", "this personal access token has expired")
+    if not user.is_active:
+        raise ApiError("unauthenticated", "this account is no longer active")
+    return token, user
 
 
 # --------------------------------------------------------------------- RBAC

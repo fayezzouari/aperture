@@ -393,6 +393,79 @@ keys or a video, then poll the job or take a webhook.
 
 ---
 
+## Talking to it from an agent
+
+`mcp/` is an MCP server: Aperture's API as tools, so Claude Code, Claude Desktop
+or Cursor can answer "why is part-detection erroring" and *look* at what a model
+returned. It runs on your machine over stdio, calls the same `/v1` routes the
+console calls, and is bounded by your own project roles - it holds no database
+credentials and no bypass.
+
+An API key cannot do this: keys reach inference and nothing else. So a person
+issues a **personal access token** instead - **account menu → Personal access
+tokens**, or:
+
+```bash
+curl -X POST "$AP/v1/auth/tokens" -H "authorization: Bearer $SESSION" \
+  -H 'content-type: application/json' -d '{"name":"claude-code","expires_in_days":90}'
+```
+
+A token is that user: same roles, resolved per request, hashed at rest, shown
+once, revocable, and unable to mint further tokens. Point an agent at it:
+
+```bash
+claude mcp add aperture \
+  -e APERTURE_URL=http://localhost:8080 \
+  -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \
+  -e APERTURE_PROJECT=default \
+  -- uvx --from ./mcp aperture-mcp
+```
+
+Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json`)
+take the same thing as JSON:
+
+```json
+{
+  "mcpServers": {
+    "aperture": {
+      "command": "uvx",
+      "args": ["--from", "/path/to/aperture/mcp", "aperture-mcp"],
+      "env": {
+        "APERTURE_URL": "http://localhost:8080",
+        "APERTURE_TOKEN": "ap_pat_xxxx.yyyy",
+        "APERTURE_PROJECT": "default"
+      }
+    }
+  }
+}
+```
+
+What it exposes: the registry (`list_models`, `get_model`, `list_versions`,
+`get_version`, `compare_versions`, `list_presets`), operations (`get_overview`,
+`get_metrics`, `get_errors`, `list_runtimes`, `list_jobs`, `get_job`,
+`get_drift`), the log (`search_inferences`, `get_inference`, `search_audit`),
+workflows, and two that run something: `predict` and `run_workflow`. Reads are
+annotated read-only; `predict` says in its description that `ondemand=true`
+starts a replica.
+
+Two details make it worth pointing an agent at rather than curl. `predict`
+returns the runtime-rendered overlay as an image block next to a per-class
+summary, and `get_inference` returns the captured frame and its overlay, so the
+model sees the picture instead of a paragraph about the picture. And responses
+are trimmed to what is worth reasoning about - identifiers, states, counts,
+latencies, class names - not the forty fields the console needs.
+
+Aperture's own audit log records which credential acted: a row written under a
+token carries `actor_type` `user:token` with the person's email, so "the agent
+did it" and "I did it" stay distinguishable. An API key still works if that is
+all you have, in which case only `predict` and `run_workflow` are registered.
+
+Captured images arrive as presigned links on `AP_S3_PUBLIC_ENDPOINT`
+(`localhost:9000` by default), so an agent on another machine needs that address
+to be reachable for `get_inference` to show them.
+
+---
+
 ## Workflows
 
 A useful answer usually needs more than one model. "Which panel is damaged, and
@@ -508,6 +581,11 @@ UI ships no external fonts, CDNs or analytics. Pre-pull the eight images in
 * **API keys** are per consumer, scoped to specific models, rate limited, quota
   limited, revocable, and stored only as a hash. They reach the inference API
   and nothing else.
+* **Personal access tokens** are the long-lived form of a person, for agents and
+  scripts: the owner's roles re-read on every request, hashed at rest, shown
+  once, self-service to issue and revoke, and refused when the owner is
+  deactivated. A token cannot create another token, so a leaked one cannot
+  outlive its own revocation.
 * **People** sign in with OIDC, LDAP or a local password, and hold a role per
   project: `viewer` reads, `developer` uploads/validates/deploys, `admin`
   manages keys, members and deletion.
@@ -533,6 +611,7 @@ landing/    React + Vite landing page, built from docs/screenshots
 deploy/     Prometheus, Grafana dashboard, OTel collector, MinIO bootstrap
 scripts/    end-to-end suite, demo seeder, SDK generation
 sdk/        hand-written Python and TypeScript clients
+mcp/        MCP server (stdio): the /v1 API as tools for coding agents
 ```
 
 ## Known limits

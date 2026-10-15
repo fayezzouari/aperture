@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
 from fastapi import Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import audit
 from app.cache import check_quota, check_rate_limit
 from app.db import get_session
 from app.errors import ApiError
 from app.metrics import rejected_total
-from app.models import ApiKey, Model, Project, User
-from app.security import decode_token, load_memberships, require_role, resolve_api_key
+from app.models import ApiKey, Model, PersonalAccessToken, Project, User
+from app.security import (
+    aware_utc,
+    decode_token,
+    is_pat,
+    load_memberships,
+    require_role,
+    resolve_api_key,
+    resolve_pat,
+)
 from app.settings import settings
 
 PROJECT_HEADER = "x-aperture-project"
@@ -29,6 +38,14 @@ class Principal:
     is_superadmin: bool = False
     api_key: ApiKey | None = None
     project_id: str | None = None
+    token: PersonalAccessToken | None = None  # set when a personal access token signed in
+
+    @property
+    def actor_type(self) -> str:
+        """What the audit log records: user, user:token or api_key."""
+        if self.kind == "api_key":
+            return "api_key"
+        return "user:token" if self.token is not None else "user"
 
     def require(self, project_id: str, minimum: str) -> None:
         if self.kind == "api_key":
@@ -55,7 +72,11 @@ def _bearer(request: Request) -> str | None:
 async def current_user(
     request: Request, session: AsyncSession = Depends(get_session)
 ) -> Principal:
-    token = _bearer(request) or request.cookies.get("aperture_session")
+    bearer = _bearer(request)
+    if is_pat(bearer):
+        # only the header: a token is never a cookie
+        return await principal_for_token(session, bearer)
+    token = bearer or request.cookies.get("aperture_session")
     if not token:
         raise ApiError("unauthenticated", "sign in to continue")
     claims = decode_token(token)
@@ -65,6 +86,35 @@ async def current_user(
     roles = await load_memberships(session, user.id)
     return Principal(kind="user", id=user.id, label=user.email, roles=roles,
                      is_superadmin=user.is_superadmin)
+
+
+PAT_LAST_USED_GRANULARITY = timedelta(minutes=1)
+
+
+async def principal_for_token(session: AsyncSession, raw: str) -> Principal:
+    """A personal access token is the user who issued it, with that user's roles today.
+
+    Roles are loaded on every call rather than frozen into the token, so a role
+    change or a removed membership takes effect on the next request - the JWT
+    path only re-reads them at login, which is fine for a 12-hour session and not
+    for a credential that lives for months.
+    """
+    token, user = await resolve_pat(session, raw)
+    roles = await load_memberships(session, user.id)
+    # last_used_at is bookkeeping: written at most once a minute per token, and a
+    # failure to write it must never fail the request it rides on.
+    now = datetime.now(UTC)
+    last = aware_utc(token.last_used_at)
+    if last is None or now - last > PAT_LAST_USED_GRANULARITY:
+        await session.execute(
+            sa.update(PersonalAccessToken)
+            .where(PersonalAccessToken.id == token.id)
+            .values(last_used_at=now)
+        )
+        await session.commit()
+    audit.actor_type_var.set("user:token")
+    return Principal(kind="user", id=user.id, label=user.email, roles=roles,
+                     is_superadmin=user.is_superadmin, token=token)
 
 
 async def optional_user(
@@ -82,7 +132,7 @@ async def inference_principal(
     """The inference API accepts an API key (products) or a session (UI playground)."""
     raw_key = request.headers.get("x-api-key") or ""
     bearer = _bearer(request) or ""
-    if not raw_key and bearer.startswith("ap_"):
+    if not raw_key and bearer.startswith("ap_") and not is_pat(bearer):
         raw_key = bearer
 
     if raw_key:

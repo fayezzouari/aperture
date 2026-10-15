@@ -61,10 +61,12 @@ psql: ## Open psql against the database
 	$(COMPOSE) exec postgres psql -U aperture -d aperture
 
 .PHONY: test
-test: ## Run the pipeline, artifact and runtime test suites
+test: ## Run the pipeline, artifact, runtime, backend and MCP test suites
 	cd core && uv run --with numpy --with pillow --with pydantic --with-editable . python smoke_test.py
 	cd core && uv run --with numpy --with pillow --with pydantic --with onnx --with-editable . python artifact_test.py
 	cd runtime && uv run --with onnx python smoke_test.py
+	cd backend && uv run --extra dev pytest -q
+	cd mcp && uv run --extra dev pytest -q
 
 .PHONY: e2e
 e2e: ## Exercise the running stack end to end (upload, validate, deploy, predict, roll back)
@@ -87,6 +89,7 @@ seed: ## Create a demo model with a synthetic ONNX detector and deploy it
 .PHONY: lint
 lint: ## Ruff over the Python, tsc over the frontend
 	cd backend && uv run ruff check app
+	cd mcp && uv run --extra dev ruff check aperture_mcp tests
 	cd runtime && uv run ruff check runtime || true
 	cd frontend && npx tsc -b --noEmit
 	cd landing && npx tsc -b --noEmit
