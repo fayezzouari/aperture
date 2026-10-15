@@ -1184,11 +1184,10 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             # so the downloaded artifact stays on record either way. An RF-DETR
             # state_dict is servable now, but only on a runtime carrying rfdetr -
             # so the export still runs, and the import lands with both.
+            convert_job = None
             follow_on = None
             needs_export = not artifact.servable or artifact.kind == "state_dict"
             if params.get("convert", True) and needs_export:
-                from app.jobs.queue import QUEUE_CONVERT, enqueue
-
                 convert_job = Job(
                     project_id=project.id, kind="convert", status="queued",
                     created_by=job.created_by,
@@ -1200,7 +1199,6 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                 session.add(convert_job)
                 await session.flush()
                 follow_on = convert_job.id
-                await enqueue("convert_version", convert_job.id, queue=QUEUE_CONVERT)
 
             await _finish(session, job, result={
                 "model": model.slug, "new_version": number, "version_id": new_version.id,
@@ -1213,6 +1211,11 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                               "as a separate version" if follow_on else
                               "publish the version, then deploy it"),
             })
+            if convert_job is not None:
+                # only now is the follow-on row committed and visible to the converter
+                from app.jobs.queue import QUEUE_CONVERT, dispatch
+
+                await dispatch(session, convert_job, "convert_version", queue=QUEUE_CONVERT)
             return {"model": model.slug, "new_version": number}
         except Exception as exc:
             log.exception("roboflow import failed", extra={"job_id": job_id})

@@ -147,7 +147,7 @@ async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
     button next to it. Then the conversion is queued, because the alternative is
     a dead end rather than a trade-off.
     """
-    from app.jobs.queue import QUEUE_CONVERT, enqueue, worker_alive
+    from app.jobs.queue import QUEUE_CONVERT, worker_alive
 
     artifact = version.artifact_info or {}
     # An RF-DETR state_dict is servable, but only where `rfdetr` is installed, so
@@ -168,7 +168,6 @@ async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
                       "automatic": True})
     session.add(job)
     await session.flush()
-    await enqueue("convert_version", job.id, queue=QUEUE_CONVERT)
     await audit.record(session, action="version.convert", project_id=project_id,
                        actor_id=principal.id, actor_label=principal.label,
                        target_type="version", target_id=version.id,
@@ -186,6 +185,19 @@ async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
         ],
     }
     return job
+
+
+async def _dispatch_conversion(session: AsyncSession, job: Job | None) -> None:
+    """Queue an automatic conversion once the upload that asked for it is committed.
+
+    The upload itself succeeded, so a queue that is down fails the conversion job
+    (it shows as failed on the jobs page) rather than the request.
+    """
+    if job is None:
+        return
+    from app.jobs.queue import QUEUE_CONVERT, dispatch
+
+    await dispatch(session, job, "convert_version", queue=QUEUE_CONVERT)
 
 
 async def _fleet_can_load(session: AsyncSession, fmt: str | None,
@@ -493,8 +505,8 @@ async def complete_upload(upload_id: str, request: Request,
     version.weights_sha256 = digest
     version.status = "draft"
     _apply_artifact(version, artifact)
-    await _autoconvert(session, upload.project_id, model, version, principal,
-                       request.client.host if request.client else None)
+    convert_job = await _autoconvert(session, upload.project_id, model, version, principal,
+                                     request.client.host if request.client else None)
 
     await audit.record(session, action="version.upload_complete", project_id=upload.project_id,
                        actor_id=principal.id, actor_label=principal.label, target_type="version",
@@ -504,6 +516,7 @@ async def complete_upload(upload_id: str, request: Request,
                                 "usability": artifact.get("usability")},
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await _dispatch_conversion(session, convert_job)
     return await _out(session, version)
 
 
@@ -538,8 +551,8 @@ async def upload_weights_single_shot(
     version.weights_key, version.weights_bytes = key, len(data)
     version.weights_sha256, version.artifact_format = digest, fmt
     _apply_artifact(version, artifact)
-    await _autoconvert(session, project.id, model, version, principal,
-                       request.client.host if request.client else None)
+    convert_job = await _autoconvert(session, project.id, model, version, principal,
+                                     request.client.host if request.client else None)
 
     await audit.record(session, action="version.upload_complete", project_id=project.id,
                        actor_id=principal.id, actor_label=principal.label, target_type="version",
@@ -547,6 +560,7 @@ async def upload_weights_single_shot(
                        payload={"bytes": len(data), "sha256": digest},
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await _dispatch_conversion(session, convert_job)
     return await _out(session, version)
 
 
@@ -733,7 +747,7 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
             "`api_key` with this request.",
         )
 
-    from app.jobs.queue import QUEUE_CONVERT, enqueue, worker_alive
+    from app.jobs.queue import QUEUE_CONVERT, submit, worker_alive
 
     if not await worker_alive(QUEUE_CONVERT):
         raise ApiError(
@@ -751,7 +765,6 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
               created_by=principal.id, params=params)
     session.add(job)
     await session.flush()
-    await enqueue("import_roboflow", job.id, api_key=body.api_key, queue=QUEUE_CONVERT)
     # same in the audit trail: recorded as present rather than written down
     await audit.record(session, action="model.import", project_id=project.id,
                        actor_id=principal.id, actor_label=principal.label, target_type="model",
@@ -760,6 +773,8 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
                                 "own_api_key": bool(body.api_key)},
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await submit(session, job, "import_roboflow", queue=QUEUE_CONVERT,
+                 api_key=body.api_key)
     return JobOut.model_validate(job)
 
 
@@ -786,7 +801,7 @@ async def convert_version(ref: str, number: str, body: ConversionIn, request: Re
             details={"artifact": artifact},
         )
 
-    from app.jobs.queue import QUEUE_CONVERT, enqueue, worker_alive
+    from app.jobs.queue import QUEUE_CONVERT, submit, worker_alive
 
     if not await worker_alive(QUEUE_CONVERT):
         raise ApiError(
@@ -801,11 +816,11 @@ async def convert_version(ref: str, number: str, body: ConversionIn, request: Re
                       **body.model_dump()})
     session.add(job)
     await session.flush()
-    await enqueue("convert_version", job.id, queue=QUEUE_CONVERT)
     await audit.record(session, action="version.convert", project_id=project.id,
                        actor_id=principal.id, actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        payload=body.model_dump(),
                        client_ip=request.client.host if request.client else None)
     await session.commit()
+    await submit(session, job, "convert_version", queue=QUEUE_CONVERT)
     return JobOut.model_validate(job)
