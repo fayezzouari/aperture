@@ -743,14 +743,16 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
             "`docker compose --profile convert up -d converter`.",
         )
 
-    params = body.model_dump()
+    # the key is a credential: it rides along with the queued task in Redis and never
+    # lands in the job row, which every project viewer can read back
+    params = body.model_dump(exclude={"api_key"})
     params.update(workspace=workspace, project=rf_project, version=rf_version)
     job = Job(project_id=project.id, kind="roboflow_import", status="queued",
               created_by=principal.id, params=params)
     session.add(job)
     await session.flush()
-    await enqueue("import_roboflow", job.id, queue=QUEUE_CONVERT)
-    # the key is a credential, so it is recorded as present rather than written down
+    await enqueue("import_roboflow", job.id, api_key=body.api_key, queue=QUEUE_CONVERT)
+    # same in the audit trail: recorded as present rather than written down
     await audit.record(session, action="model.import", project_id=project.id,
                        actor_id=principal.id, actor_label=principal.label, target_type="model",
                        target_id=job.id, target_label=f"{workspace}/{rf_project}/{rf_version}",

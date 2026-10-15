@@ -92,9 +92,25 @@ def workflow_row(row: dict, include_graph: bool = False) -> dict:
     return out
 
 
+SECRET_HINTS = ("api_key", "apikey", "token", "password", "secret")
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: ("***" if v and any(h in str(k).lower() for h in SECRET_HINTS) else _redact(v))
+                for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(v) for v in value]
+    return value
+
+
 def job_row(row: dict) -> dict:
-    return pick(row, "id", "kind", "status", "progress", "total", "error", "created_at",
-                "started_at", "finished_at", "params")
+    out = pick(row, "id", "kind", "status", "progress", "total", "error", "created_at",
+               "started_at", "finished_at", "params")
+    # the API already masks credentials; an agent's context is no place for one either way
+    if "params" in out:
+        out["params"] = _redact(out["params"])
+    return out
 
 
 # ------------------------------------------------------------- observability
