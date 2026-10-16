@@ -6,7 +6,6 @@ TensorRT compile cannot touch inference latency.
 
 from __future__ import annotations
 
-import base64
 import io
 import json
 import logging
@@ -19,6 +18,8 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import sqlalchemy as sa
+from aperture_core.rfdetr import build as rfdetr_build
+from aperture_core.rfdetr import geometry_from_state_dict, rebuild_kwargs
 
 from app import storage
 from app.cache import publish_log
@@ -30,7 +31,6 @@ from app.models import (
     Job,
     Model,
     ModelVersion,
-    Project,
     ReportSchedule,
     Runtime,
     UploadSession,
@@ -49,9 +49,6 @@ from app.services.gateway import (
     sanitise_overrides,
 )
 from app.settings import settings
-
-from aperture_core.rfdetr import build as rfdetr_build
-from aperture_core.rfdetr import geometry_from_state_dict, rebuild_kwargs
 
 log = logging.getLogger("aperture.jobs")
 
@@ -111,9 +108,8 @@ async def run_inference_job(ctx: dict, job_id: str) -> dict:
         params = job.params or {}
         try:
             model = await session.get(Model, params["model_id"])
-            project = await session.get(Project, job.project_id)
-            if model is None or project is None:
-                raise ApiError("not_found", "the model or project for this job is gone")
+            if model is None:
+                raise ApiError("not_found", "the model for this job is gone")
 
             resolved, target, _ = await resolve_target(session, model, params.get("ref", "production"))
             overrides = sanitise_overrides(params.get("overrides"))
@@ -158,7 +154,6 @@ async def run_inference_job(ctx: dict, job_id: str) -> dict:
                         predictions.append({"source": chunk[offset][0], **result})
                     await publish_log({
                         "request_id": f"job-{job.id}-{start}", "trace_id": None, "span_id": None,
-                        "project_id": project.id, "project_slug": project.slug,
                         "model_id": model.id, "model_slug": model.slug,
                         "version_id": target.version.id, "version_number": target.version.version,
                         "tag": resolved.tag, "route": "primary", "caller_type": "job",
@@ -187,7 +182,7 @@ async def run_inference_job(ctx: dict, job_id: str) -> dict:
             artifact = {"kind": job.kind, "model": model.slug,
                         "version": target.version.version, "predictions": predictions,
                         "failures": failures}
-            key = f"{project.slug}/jobs/{job.id}.json"
+            key = f"jobs/{job.id}.json"
             await storage.put_bytes(settings.s3_bucket_reports, key,
                                     json.dumps(artifact, default=str).encode(),
                                     content_type="application/json")
@@ -244,8 +239,7 @@ async def convert_version(ctx: dict, job_id: str) -> dict:
                 params = {**params, "artifact": source.artifact_info or {},
                           "config": source.config or {}}
             model = await session.get(Model, params["model_id"])
-            project = await session.get(Project, job.project_id)
-            if not (source and model and project and source.weights_key):
+            if not (source and model and source.weights_key):
                 raise ApiError("not_found", "the source version is missing its weights")
 
             target = params["target"]
@@ -269,7 +263,7 @@ async def convert_version(ctx: dict, job_id: str) -> dict:
                 ).scalar_one() or 0
             ) + 1
             filename = os.path.basename(produced)
-            key = storage.weights_key(project.slug, model.slug, number, filename)
+            key = storage.weights_key(model.slug, number, filename)
             info = await storage.put_bytes(settings.s3_bucket_weights, key, data)
 
             # a converted RF-DETR brings its own config, read from the weights;
@@ -617,7 +611,7 @@ async def export_flagged_dataset(ctx: dict, job_id: str) -> dict:
         params = job.params or {}
         try:
             since = datetime.now(UTC) - timedelta(hours=int(params.get("since_hours", 2160)))
-            clauses = [InferenceLog.project_id == job.project_id, InferenceLog.flagged.is_(True),
+            clauses = [InferenceLog.flagged.is_(True),
                        InferenceLog.created_at >= since]
             if params.get("model_id"):
                 clauses.append(InferenceLog.model_id == params["model_id"])
@@ -710,7 +704,7 @@ async def export_flagged_dataset(ctx: dict, job_id: str) -> dict:
                                                                     key=lambda kv: kv[1])))
 
             stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-            key = f"{params.get('project_slug', job.project_id)}/exports/flagged-{stamp}.zip"
+            key = f"exports/flagged-{stamp}.zip"
             await storage.put_bytes(settings.s3_bucket_reports, key, buffer.getvalue(),
                                     content_type="application/zip")
             await _finish(session, job, result={
@@ -735,7 +729,7 @@ async def purge_captures(ctx: dict, job_id: str) -> dict:
             return {"skipped": True}
         params = job.params or {}
         try:
-            clauses = [InferenceLog.project_id == job.project_id]
+            clauses = []
             before_hours = int(params.get("before_hours") or 0)
             if before_hours:
                 clauses.append(
@@ -885,17 +879,14 @@ async def run_report_schedule(ctx: dict, schedule_id: str) -> dict:
         schedule = await session.get(ReportSchedule, schedule_id)
         if schedule is None:
             return {"skipped": True}
-        project = await session.get(Project, schedule.project_id)
-        if project is None:
-            return {"skipped": True}
         params = schedule.params or {}
         report = await report_service.build(
-            session, project=project, kind=schedule.kind,
+            session, kind=schedule.kind,
             group_by=params.get("group_by", "model"),
             since_hours=int(params.get("since_hours", 168)),
             model_id=params.get("model_id"),
         )
-        key = await report_service.store_artifact(report, schedule.fmt, project.slug)
+        key = await report_service.store_artifact(report, schedule.fmt)
         schedule.last_run_at = datetime.now(UTC)
         schedule.last_artifact_key = key
         await session.commit()
@@ -907,7 +898,7 @@ async def run_report_schedule(ctx: dict, schedule_id: str) -> dict:
 
 
 async def _deliver_report(schedule: ReportSchedule, report: dict, url: str) -> None:
-    line = (f"{report['title']} for {report['project']} - {len(report['rows'])} rows, "
+    line = (f"{report['title']} for {report['instance']} - {len(report['rows'])} rows, "
             f"window {report['window_hours']} h")
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -916,7 +907,7 @@ async def _deliver_report(schedule: ReportSchedule, report: dict, url: str) -> N
                                   json={"text": f"*{line}*\n<{url}|Download {schedule.fmt.upper()}>"})
             elif schedule.channel == "webhook":
                 await client.post(schedule.destination, json={
-                    "report": report["kind"], "project": report["project"],
+                    "report": report["kind"], "instance": report["instance"],
                     "rows": len(report["rows"]), "totals": report["totals"], "url": url,
                 })
             elif schedule.channel == "email":
@@ -1088,8 +1079,6 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                     "invalid_config",
                     "no Roboflow API key: set AP_ROBOFLOW_API_KEY or send one with the import",
                 )
-            project = await session.get(Project, job.project_id)
-
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.get(
                     f"{ROBOFLOW_API}/{workspace}/{project_id}/{version}",
@@ -1107,7 +1096,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             slug = params.get("slug") or re.sub(r"[^a-z0-9._-]+", "-", project_id.lower()).strip("-")
             model = (
                 await session.execute(
-                    sa.select(Model).where(Model.project_id == project.id, Model.slug == slug)
+                    sa.select(Model).where(Model.slug == slug)
                 )
             ).scalar_one_or_none()
 
@@ -1128,7 +1117,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
 
                 if model is None:
                     model = Model(
-                        project_id=project.id, slug=slug,
+                        slug=slug,
                         name=detail.get("name") or project_id, task=task,
                         framework="pytorch", owner=job.created_by or "",
                         description=f"Imported from Roboflow {workspace}/{project_id}/{version}.",
@@ -1154,7 +1143,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                     )
                 ).scalar_one() or 0
             ) + 1
-            key = storage.weights_key(project.slug, model.slug, number, filename)
+            key = storage.weights_key(model.slug, number, filename)
             info = await storage.put_bytes(settings.s3_bucket_weights, key, data)
 
             from aperture_core import preset_config
@@ -1189,7 +1178,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             needs_export = not artifact.servable or artifact.kind == "state_dict"
             if params.get("convert", True) and needs_export:
                 convert_job = Job(
-                    project_id=project.id, kind="convert", status="queued",
+                    kind="convert", status="queued",
                     created_by=job.created_by,
                     params={"model_id": model.id, "version_id": new_version.id,
                             "target": "onnx", "opset": params.get("opset", 17),
@@ -1227,7 +1216,7 @@ def _roboflow_download(workspace: str, project_id: str, version: int,
                        api_key: str, out_dir: str) -> tuple[str, str | None]:
     """The version's trained weights on disk, plus Roboflow's model type.
 
-    `version.model` is deprecated and returns None on current projects, so this
+    `version.model` is deprecated and returns None on current Roboflow projects, so this
     uses `models()`. A version that was never trained, or whose architecture
     Roboflow only hosts, has nothing to hand over - which is worth saying plainly
     rather than failing later on a missing file.
