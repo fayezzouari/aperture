@@ -152,8 +152,8 @@ function Shell({ children }: { children: React.ReactNode }) {
 
       <nav className="scroll-y flex-1 overflow-y-auto px-2 pb-4" aria-label="Main">
         {NAV.map((section) => (
-          <div key={section.group} className="mt-3 first:mt-0">
-            <p className="px-2.5 pb-1 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-3">{section.group}</p>
+          <div key={section.group} className="mt-4 first:mt-0">
+            <p className="px-2.5 pb-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-ink-2">{section.group}</p>
             <ul className="flex flex-col gap-px">
               {section.items.map((item) => {
                 const on = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
