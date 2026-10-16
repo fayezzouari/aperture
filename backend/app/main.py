@@ -13,6 +13,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+from aperture_core.results import ErrorResponse
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -25,9 +26,8 @@ from app.api.router import v1
 from app.cache import client as redis_client
 from app.cache import close as close_redis
 from app.db import SessionLocal, create_schema, engine
-from aperture_core.results import ErrorResponse
 from app.errors import install_handlers
-from app.logging_setup import configure_logging, project_id_var, request_id_var, trace_id_var
+from app.logging_setup import configure_logging, request_id_var, trace_id_var
 from app.metrics import REGISTRY
 from app.schemas import PresetOut  # noqa: F401  (keeps the schema in the OpenAPI document)
 from app.services.gateway import close_client
@@ -131,7 +131,6 @@ async def request_context(request: Request, call_next):
         parts = traceparent.split("-")
         trace_id = parts[1] if len(parts) >= 3 else None
     trace_id_var.set(trace_id)
-    project_id_var.set(request.headers.get("x-aperture-project"))
 
     started = time.perf_counter()
     try:
