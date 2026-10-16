@@ -11,14 +11,9 @@ async def test_list_models_is_trimmed_and_paged(server, api):
     assert row["slug"] == "part-detection"
     assert row["tags"] == {"production": 3}
     assert row["p95_ms_24h"] == 71.5
-    assert "project_id" not in row and "created_at" not in row
+    assert "created_at" not in row
     assert api.last().url.params["limit"] == "1"
-    assert api.last().headers["x-aperture-project"] == "default"
-
-
-async def test_project_override_travels_as_a_header(server, api):
-    await call(server, "list_models", project="other")
-    assert api.last().headers["x-aperture-project"] == "other"
+    assert "x-aperture-project" not in api.last().headers  # one instance, nothing to pick
 
 
 async def test_unset_filters_are_not_sent(server, api):
