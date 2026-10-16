@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import ApiError
-from app.models import ApiKey, Membership, PersonalAccessToken, User
+from app.models import ApiKey, PersonalAccessToken, User
 from app.settings import settings
 
 log = logging.getLogger("aperture.security")
@@ -68,15 +68,14 @@ def verify_password(password: str, encoded: str | None) -> bool:
 # ----------------------------------------------------------------------- JWT
 
 
-def issue_token(user: User, memberships: dict[str, str]) -> tuple[str, int]:
+def issue_token(user: User) -> tuple[str, int]:
     now = int(time.time())
     ttl = settings.jwt_ttl_minutes * 60
     payload = {
         "sub": user.id,
         "email": user.email,
         "name": user.name,
-        "sa": user.is_superadmin,
-        "roles": memberships,  # project_id -> role
+        "role": user.role,
         "iat": now,
         "exp": now + ttl,
         "iss": "aperture",
@@ -182,26 +181,11 @@ async def resolve_pat(session: AsyncSession, raw: str) -> tuple[PersonalAccessTo
 # --------------------------------------------------------------------- RBAC
 
 
-async def load_memberships(session: AsyncSession, user_id: str) -> dict[str, str]:
-    rows = (
-        await session.execute(
-            sa.select(Membership.project_id, Membership.role).where(Membership.user_id == user_id)
-        )
-    ).all()
-    return {project_id: role for project_id, role in rows}
-
-
-def require_role(roles: dict[str, str], project_id: str, minimum: str, *,
-                 superadmin: bool = False) -> None:
-    if superadmin:
-        return
-    role = roles.get(project_id)
-    if role is None:
-        raise ApiError("forbidden", "you are not a member of this project")
-    if ROLE_ORDER.get(role, -1) < ROLE_ORDER[minimum]:
+def require_role(role: str | None, minimum: str) -> None:
+    if ROLE_ORDER.get(role or "", -1) < ROLE_ORDER[minimum]:
         raise ApiError(
             "insufficient_role",
-            f"this action needs the '{minimum}' role, your role is '{role}'",
+            f"this action needs the '{minimum}' role, your role is '{role or 'none'}'",
         )
 
 
