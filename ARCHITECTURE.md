@@ -22,7 +22,7 @@ nginx ────────────────────────�
 api  ┌──────────────────────────────────────────────────────────────────┐
      │ 1. authenticate: API key (hash compare) or session JWT          │
      │ 2. rate limit + quota          [redis counter, fixed window]     │
-     │ 3. resolve project, model      [postgres]                        │
+     │ 3. resolve model               [postgres]                        │
      │ 4. key scope check                                               │
      │ 5. read images, enforce size and count limits                    │
      │ 6. resolve {version|tag}       [redis, 5 s TTL → postgres]        │
@@ -198,13 +198,15 @@ cap exists and why a large fan-out belongs in an async job.
 ## Data model
 
 ```
-projects ─┬─ memberships ── users
-          ├─ api_keys
-          └─ models ─┬─ model_versions ─┬─ deployments ── assignments ── runtimes
-                     │                  └─ drift_windows
-                     └─ tags ──────────────▶ (points at one version)
+users ── personal_access_tokens        (one instance-wide role per user)
+api_keys                               (instance-wide, optionally scoped to models)
+instance_settings                      (one row: capture policy overrides)
 
-inference_logs   append-only, indexed on (project, created_at), (model, created_at),
+models ─┬─ model_versions ─┬─ deployments ── assignments ── runtimes
+        │                  └─ drift_windows
+        └─ tags ──────────────▶ (points at one version)
+
+inference_logs   append-only, indexed on (model, created_at),
                  (version, created_at), (status, created_at), total_ms
 audit_logs       append-only
 jobs             async work + progress
