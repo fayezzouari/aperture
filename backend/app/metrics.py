@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, multiprocess
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
 REGISTRY = CollectorRegistry()
 
@@ -13,14 +13,14 @@ LATENCY_BUCKETS = (
 requests_total = Counter(
     "aperture_inference_requests_total",
     "Inference requests by outcome",
-    ["project", "model", "version", "route", "status"],
+    ["model", "version", "route", "status"],
     registry=REGISTRY,
 )
 
 images_total = Counter(
     "aperture_inference_images_total",
     "Images processed",
-    ["project", "model", "version"],
+    ["model", "version"],
     registry=REGISTRY,
 )
 
