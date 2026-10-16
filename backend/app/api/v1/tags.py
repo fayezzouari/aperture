@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.cache import invalidate_tag
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404, project_dep
+from app.deps import Principal, current_user, get_model_or_404
 from app.errors import ApiError
-from app.models import Model, ModelVersion, Project, Tag
+from app.models import Model, ModelVersion, Tag
 from app.schemas import TagIn, TagOut
 from app.serialize import dump, dump_loaded
 
@@ -47,11 +47,11 @@ async def _resolve_version(session: AsyncSession, model: Model, version: int | N
 
 
 @router.get("", response_model=list[TagOut])
-async def list_tags(ref: str, project: Project = Depends(project_dep),
+async def list_tags(ref: str,
                     principal: Principal = Depends(current_user),
                     session: AsyncSession = Depends(get_session)) -> list[TagOut]:
-    principal.require(project.id, "viewer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("viewer")
+    model = await get_model_or_404(session, ref)
     rows = (
         await session.execute(
             sa.select(Tag, ModelVersion.version)
@@ -64,12 +64,11 @@ async def list_tags(ref: str, project: Project = Depends(project_dep),
 
 @router.put("", response_model=TagOut)
 async def set_tag(ref: str, body: TagIn, request: Request,
-                  project: Project = Depends(project_dep),
                   principal: Principal = Depends(current_user),
                   session: AsyncSession = Depends(get_session)) -> TagOut:
     """Create or move a tag. Atomic: one row update, then an explicit cache purge."""
-    principal.require(project.id, "developer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("developer")
+    model = await get_model_or_404(session, ref)
     version = await _resolve_version(session, model, body.version, body.version_id)
 
     tag = (
@@ -88,7 +87,7 @@ async def set_tag(ref: str, body: TagIn, request: Request,
             raise ApiError("tag_locked",
                            f"tag '{tag.name}' is locked - unlock it before moving it")
         if body.name in PROTECTED:
-            principal.require(project.id, "developer")
+            principal.require("developer")
         previous = tag.version_id
         tag.previous_version_id = previous
         tag.version_id = version.id
@@ -98,7 +97,7 @@ async def set_tag(ref: str, body: TagIn, request: Request,
     await session.flush()
     await invalidate_tag(model.id, body.name)
     await audit.record(
-        session, action=action, project_id=project.id, actor_id=principal.id,
+        session, action=action, actor_id=principal.id,
         actor_label=principal.label, target_type="tag", target_id=tag.id,
         target_label=f"{model.slug}:{body.name}",
         payload={"to_version": version.version, "from_version_id": previous},
@@ -110,11 +109,10 @@ async def set_tag(ref: str, body: TagIn, request: Request,
 
 @router.post("/{name}/lock", response_model=TagOut)
 async def lock_tag(ref: str, name: str, request: Request, locked: bool = True,
-                   project: Project = Depends(project_dep),
                    principal: Principal = Depends(current_user),
                    session: AsyncSession = Depends(get_session)) -> TagOut:
-    principal.require(project.id, "admin")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("admin")
+    model = await get_model_or_404(session, ref)
     tag = (
         await session.execute(sa.select(Tag).where(Tag.model_id == model.id, Tag.name == name))
     ).scalar_one_or_none()
@@ -122,7 +120,7 @@ async def lock_tag(ref: str, name: str, request: Request, locked: bool = True,
         raise ApiError("tag_not_found", f"no tag '{name}' on {model.slug}")
     tag.locked = locked
     version = await session.get(ModelVersion, tag.version_id)
-    await audit.record(session, action="tag.lock", project_id=project.id, actor_id=principal.id,
+    await audit.record(session, action="tag.lock", actor_id=principal.id,
                        actor_label=principal.label, target_type="tag", target_id=tag.id,
                        target_label=f"{model.slug}:{name}", payload={"locked": locked})
     await session.commit()
@@ -133,11 +131,10 @@ async def lock_tag(ref: str, name: str, request: Request, locked: bool = True,
 
 @router.delete("/{name}", status_code=204)
 async def delete_tag(ref: str, name: str, request: Request,
-                     project: Project = Depends(project_dep),
                      principal: Principal = Depends(current_user),
                      session: AsyncSession = Depends(get_session)) -> None:
-    principal.require(project.id, "developer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("developer")
+    model = await get_model_or_404(session, ref)
     tag = (
         await session.execute(sa.select(Tag).where(Tag.model_id == model.id, Tag.name == name))
     ).scalar_one_or_none()
@@ -147,7 +144,7 @@ async def delete_tag(ref: str, name: str, request: Request,
         raise ApiError("tag_locked", f"tag '{name}' is locked")
     await session.delete(tag)
     await invalidate_tag(model.id, name)
-    await audit.record(session, action="tag.delete", project_id=project.id, actor_id=principal.id,
+    await audit.record(session, action="tag.delete", actor_id=principal.id,
                        actor_label=principal.label, target_type="tag", target_id=tag.id,
                        target_label=f"{model.slug}:{name}",
                        client_ip=request.client.host if request.client else None)
