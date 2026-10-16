@@ -1,4 +1,4 @@
-"""Seed a demo project: two models, several versions, tags, deployments, traffic.
+"""Seed a demo instance: two models, several versions, tags, deployments, traffic.
 
 Run against a fresh instance to have something to look at:
 
@@ -30,10 +30,7 @@ def main() -> int:
     client = httpx.Client(base_url=BASE, timeout=180.0)
     login = client.post("/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
     login.raise_for_status()
-    client.headers.update({
-        "authorization": f"Bearer {login.json()['access_token']}",
-        "x-aperture-project": "default",
-    })
+    client.headers.update({"authorization": f"Bearer {login.json()['access_token']}"})
     print(f"signed in to {BASE} as {EMAIL}")
 
     workdir = tempfile.mkdtemp(prefix="aperture-seed-")
