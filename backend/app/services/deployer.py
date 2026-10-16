@@ -13,6 +13,7 @@ a small bin-packer that runs on every heartbeat and on every deployment change:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -30,6 +31,11 @@ ACTIVE_STATES = ("pending", "loading", "warming", "ready")
 # placed but not resident yet, so not in the runtime's reported usage either
 NOT_YET_RESIDENT = ("pending", "loading")
 MEMORY_REFUSAL = "insufficient memory"
+
+# One reconcile at a time across every API and worker process. The key is an
+# arbitrary constant; it only has to differ from any other advisory lock we take.
+RECONCILE_LOCK_KEY = 0x41505254_52434E  # "APRT" "RCN"
+_local_lock = asyncio.Lock()  # SQLite has no advisory locks; tests run in one process
 
 
 # An ONNX-only image says nothing about torch, so a runtime that predates
@@ -133,7 +139,31 @@ async def _fresh_runtimes(session: AsyncSession) -> list[Runtime]:
 
 
 async def reconcile(session: AsyncSession) -> dict:
-    """Idempotent. Safe to call from the heartbeat path and from a cron tick."""
+    """Idempotent. Safe to call from the heartbeat path and from a cron tick.
+
+    Callers race: on-demand predicts poll it every 0.75 s, the cron ticks every
+    15 s, heartbeats and deployment routes call it too. Two concurrent passes
+    would both see a replica missing and both insert it (a unique violation on
+    uq_assign_runtime_version that surfaced as a 500), or both delete the same
+    orphan. So a pass takes a transaction-scoped advisory lock; if another pass
+    holds it, this one returns straight away, since that pass is doing the work.
+    """
+    if session.bind.dialect.name == "postgresql":
+        got = (await session.execute(
+            sa.select(sa.func.pg_try_advisory_xact_lock(RECONCILE_LOCK_KEY)))).scalar()
+        if not got:
+            # end the read-only transaction without rollback(), which would
+            # expire every object the caller still holds
+            await session.commit()
+            return {"skipped": True, "reason": "another reconcile is running"}
+        return await _reconcile(session)  # the commit inside releases the lock
+    if _local_lock.locked():
+        return {"skipped": True, "reason": "another reconcile is running"}
+    async with _local_lock:
+        return await _reconcile(session)
+
+
+async def _reconcile(session: AsyncSession) -> dict:
     runtimes = await _fresh_runtimes(session)
     runtime_ids = {r.id for r in runtimes}
 
@@ -206,6 +236,10 @@ async def reconcile(session: AsyncSession) -> dict:
 
     blocked: dict[str, str] = {}
 
+    # a runtime holds a version once, whichever deployment (primary, shadow,
+    # canary) asked for it - the same unique the table enforces
+    held = {(a.runtime_id, a.version_id) for a in assignments if a.runtime_id in runtime_ids}
+
     created = removed = 0
     for deployment in deployments:
         current = [
@@ -218,6 +252,7 @@ async def reconcile(session: AsyncSession) -> dict:
             # drain the newest replicas first so a warm one keeps serving
             for a in sorted(current, key=lambda x: x.created_at, reverse=True)[: len(current) - want]:
                 await session.delete(a)
+                held.discard((a.runtime_id, a.version_id))
                 load[a.runtime_id] = max(0, load.get(a.runtime_id, 1) - 1)
                 removed += 1
             current = current[: want]
@@ -231,7 +266,8 @@ async def reconcile(session: AsyncSession) -> dict:
             need = needs.get(deployment.version_id, 0)
             capable = [
                 r for r in runtimes
-                if r.id not in taken and _device_fits(deployment, r) and r.status == "ready"
+                if r.id not in taken and (r.id, deployment.version_id) not in held
+                and _device_fits(deployment, r) and r.status == "ready"
                 and _can_load(r, fmt, artifact)
             ]
             candidates = [r for r in capable if fits(r, need)]
@@ -266,6 +302,7 @@ async def reconcile(session: AsyncSession) -> dict:
                 )
                 load[runtime.id] = load.get(runtime.id, 0) + 1
                 reserved[runtime.id] = reserved.get(runtime.id, 0) + need
+                held.add((runtime.id, deployment.version_id))
                 created += 1
 
     await session.commit()

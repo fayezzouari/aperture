@@ -42,6 +42,7 @@ from app.schemas import (
 from app.serialize import dump
 from app.services.analytics import version_traffic
 from app.services.artifact_state import guard_servable
+from app.services.versioning import next_version_number
 from app.settings import settings
 
 log = logging.getLogger("aperture.versions")
@@ -268,13 +269,13 @@ async def create_version(ref: str, body: VersionCreate, request: Request,
     """R2.1 - versions auto-increment; R1.6 - config is inherited, then editable."""
     model = await _model(session, ref, principal, "developer")
 
+    number = await next_version_number(session, model.id)  # locks the model until commit
     latest = (
         await session.execute(
             sa.select(ModelVersion).where(ModelVersion.model_id == model.id)
             .order_by(ModelVersion.version.desc()).limit(1)
         )
     ).scalar_one_or_none()
-    number = (latest.version if latest else 0) + 1
 
     parent = None
     if body.config is not None:
@@ -387,7 +388,7 @@ async def start_upload(ref: str, number: str, body: UploadInit, request: Request
     multipart_id = await storage.create_multipart(settings.s3_bucket_weights, key)
 
     upload = UploadSession(
-        model_id=model.id, filename=body.filename,
+        model_id=model.id, version_id=version.id, filename=body.filename,
         total_bytes=body.total_bytes, chunk_bytes=chunk, key=key, multipart_id=multipart_id,
         sha256_expected=body.sha256, created_by=principal.id,
         expires_at=datetime.now(UTC) + timedelta(days=2),
@@ -455,19 +456,21 @@ async def complete_upload(upload_id: str, request: Request,
     if upload is None:
         raise ApiError("not_found", "no such upload session")
     principal.require("developer")
+    if upload.status != "open":
+        # completing twice would ask S3 to finish a multipart upload that no longer exists
+        raise ApiError("conflict", f"this upload session is already {upload.status}; "
+                                   "start a new upload to send the weights again")
     if not upload.parts:
         raise ApiError("upload_incomplete", "no chunks were received for this upload")
 
     model = await session.get(Model, upload.model_id)
-    version = (
-        await session.execute(
-            sa.select(ModelVersion).where(ModelVersion.model_id == upload.model_id,
-                                          ModelVersion.status.in_(("draft", "failed")))
-            .order_by(ModelVersion.version.desc()).limit(1)
-        )
-    ).scalar_one_or_none()
+    version = await _upload_target(session, upload)
     if version is None or model is None:
         raise ApiError("conflict", "this upload has no draft version to attach to")
+    if version.status not in ("draft", "failed"):
+        raise ApiError("conflict",
+                       f"version {version.version} is {version.status} and no longer takes "
+                       "weights; create a new version and upload to that one")
 
     await storage.complete_multipart(settings.s3_bucket_weights, upload.key,
                                      upload.multipart_id, upload.parts)
@@ -483,10 +486,15 @@ async def complete_upload(upload_id: str, request: Request,
             details={"expected": upload.sha256_expected, "actual": digest},
         )
     if upload.total_bytes and size != upload.total_bytes:
+        # the multipart upload is already finished, so missing chunks cannot be
+        # re-sent into it; discard the object and close the session for good
+        await storage.delete_object(settings.s3_bucket_weights, upload.key)
+        upload.status = "failed"
+        await session.commit()
         raise ApiError(
-            "upload_incomplete",
-            f"stored {size} bytes but the session declared {upload.total_bytes}; "
-            "re-send the missing chunks",
+            "validation_failed",
+            f"stored {size} bytes but the session declared {upload.total_bytes} - the upload "
+            "was discarded; start a new upload",
             details={"received_bytes": size, "declared_bytes": upload.total_bytes},
         )
 
@@ -510,6 +518,27 @@ async def complete_upload(upload_id: str, request: Request,
     await session.commit()
     await _dispatch_conversion(session, convert_job)
     return await _out(session, version)
+
+
+async def _upload_target(session: AsyncSession, upload: UploadSession) -> ModelVersion | None:
+    """The version an upload was opened for.
+
+    Sessions opened before migration 0004 carry no version id. For those, the
+    newest draft or failed version is the best guess, which was the only rule
+    before: right unless another version was created while the upload ran.
+    """
+    if upload.version_id is not None:
+        version = await session.get(ModelVersion, upload.version_id)
+        return version if version is not None and version.model_id == upload.model_id else None
+    log.warning("upload session predates version tracking, attaching to the newest draft",
+                extra={"upload_id": upload.id, "model_id": upload.model_id})
+    return (
+        await session.execute(
+            sa.select(ModelVersion).where(ModelVersion.model_id == upload.model_id,
+                                          ModelVersion.status.in_(("draft", "failed")))
+            .order_by(ModelVersion.version.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
 
 
 @router.post("/models/{ref}/versions/{number}/weights", response_model=VersionOut)
