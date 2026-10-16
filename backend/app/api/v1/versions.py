@@ -42,6 +42,7 @@ from app.schemas import (
 from app.serialize import dump
 from app.services.analytics import version_traffic
 from app.services.artifact_state import guard_servable
+from app.services.versioning import next_version_number
 from app.settings import settings
 
 log = logging.getLogger("aperture.versions")
@@ -268,13 +269,13 @@ async def create_version(ref: str, body: VersionCreate, request: Request,
     """R2.1 - versions auto-increment; R1.6 - config is inherited, then editable."""
     model = await _model(session, ref, principal, "developer")
 
+    number = await next_version_number(session, model.id)  # locks the model until commit
     latest = (
         await session.execute(
             sa.select(ModelVersion).where(ModelVersion.model_id == model.id)
             .order_by(ModelVersion.version.desc()).limit(1)
         )
     ).scalar_one_or_none()
-    number = (latest.version if latest else 0) + 1
 
     parent = None
     if body.config is not None:
