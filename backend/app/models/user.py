@@ -19,5 +19,6 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str | None] = mapped_column(sa.String(255))
     provider: Mapped[str] = mapped_column(sa.String(32), default="local")  # local|oidc|ldap
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True)
-    is_superadmin: Mapped[bool] = mapped_column(sa.Boolean, default=False)
+    # R7.2 - one role for the whole instance: viewer | developer | admin
+    role: Mapped[str] = mapped_column(sa.String(16), default="viewer", nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
