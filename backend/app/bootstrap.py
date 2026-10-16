@@ -1,4 +1,4 @@
-"""First-boot seeding: an admin, a default project, and a reference sample image."""
+"""First-boot seeding: an admin, and a reference sample image."""
 
 from __future__ import annotations
 
@@ -7,15 +7,11 @@ import logging
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import storage
-from app.models import Membership, ModelVersion, Project, User
+from app.models import ModelVersion, User
 from app.security import hash_password
 from app.settings import settings
 
 log = logging.getLogger("aperture.bootstrap")
-
-DEFAULT_PROJECT_SLUG = "default"
-
 
 async def seed(session: AsyncSession) -> None:
     email = settings.bootstrap_admin_email.strip().lower()
@@ -26,7 +22,7 @@ async def seed(session: AsyncSession) -> None:
         admin = User(
             email=email, name="Administrator", provider="local",
             password_hash=hash_password(settings.bootstrap_admin_password),
-            is_superadmin=True,
+            role="admin",
         )
         session.add(admin)
         await session.flush()
@@ -37,26 +33,8 @@ async def seed(session: AsyncSession) -> None:
                 "anyone else can reach this instance"
             )
 
-    project = (
-        await session.execute(sa.select(Project).where(Project.slug == DEFAULT_PROJECT_SLUG))
-    ).scalar_one_or_none()
-    if project is None:
-        project = Project(slug=DEFAULT_PROJECT_SLUG, name="Default",
-                          description="Created on first boot.")
-        session.add(project)
-        await session.flush()
-        log.info("created default project")
-
-    membership = (
-        await session.execute(
-            sa.select(Membership).where(Membership.user_id == admin.id,
-                                        Membership.project_id == project.id)
-        )
-    ).scalar_one_or_none()
-    if membership is None:
-        session.add(Membership(user_id=admin.id, project_id=project.id, role="admin"))
-
     await session.commit()
+
 
 async def retire_sample_validations(session: AsyncSession) -> int:
     """Strip what the old image-based validation left on existing versions.
