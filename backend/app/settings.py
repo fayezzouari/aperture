@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     allow_remote_image_urls: bool = True
     remote_url_allowlist: str = ""  # empty = any host; set to lock down SSRF surface
     runtime_heartbeat_ttl_s: int = 20
+    # Placement's memory estimate for a version no runtime has measured yet:
+    # this multiple of its weights file, never below the floor. Matches the
+    # runtime's own admission rule (AP_MEMORY_ESTIMATE_FACTOR there).
+    runtime_memory_estimate_factor: float = 3.0
+    runtime_memory_min_version_mb: int = 64
 
     # ------------------------------------------------------------- roboflow
     # Used to import a trained model straight from a Roboflow project: read the
