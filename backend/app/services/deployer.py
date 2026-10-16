@@ -7,6 +7,8 @@ a small bin-packer that runs on every heartbeat and on every deployment change:
   * honour an explicit device request (R4.1); "auto" prefers a GPU runtime
   * bring a new version to `ready` *before* the old one starts draining (R4.6)
   * pull replicas that stopped heartbeating and re-place them elsewhere (R4.5)
+  * place a version only where its memory fits, so a runtime is never handed
+    more than it can hold and OOM-killed for it
 """
 
 from __future__ import annotations
@@ -25,6 +27,9 @@ from app.settings import settings
 log = logging.getLogger("aperture.deployer")
 
 ACTIVE_STATES = ("pending", "loading", "warming", "ready")
+# placed but not resident yet, so not in the runtime's reported usage either
+NOT_YET_RESIDENT = ("pending", "loading")
+MEMORY_REFUSAL = "insufficient memory"
 
 
 # An ONNX-only image says nothing about torch, so a runtime that predates
@@ -78,6 +83,43 @@ def _device_fits(deployment: Deployment, runtime: Runtime) -> bool:
     )
 
 
+def _available_mb(runtime: Runtime) -> int | None:
+    """Host memory the runtime has left, or None if it predates memory reporting."""
+    memory = (runtime.metrics or {}).get("memory") or {}
+    value = memory.get("available_mb")
+    return int(value) if value is not None else None
+
+
+def _memory_needs(runtimes: list[Runtime], weights: dict[str, int]) -> dict[str, int]:
+    """Expected resident cost per version.
+
+    A replica that already holds the version measured it, and that wins. A
+    runtime that refused it said what it expected to need, and the estimate
+    never goes below that, so the same runtime is not offered it again. Failing
+    both, it is a multiple of the weights file - the same rule the runtime uses.
+    """
+    measured: dict[str, int] = {}
+    refused: dict[str, int] = {}
+    for runtime in runtimes:
+        for item in runtime.loaded or []:
+            version_id = item.get("version_id")
+            if item.get("state") == "ready" and item.get("memory_mb"):
+                measured[version_id] = max(measured.get(version_id, 0), int(item["memory_mb"]))
+            elif (item.get("state") == "failed"
+                  and (item.get("detail") or "").startswith(MEMORY_REFUSAL)):
+                refused[version_id] = max(refused.get(version_id, 0),
+                                          int(item.get("needs_mb") or 0))
+    needs = {}
+    for version_id, size in weights.items():
+        if version_id in measured:
+            needs[version_id] = measured[version_id]
+            continue
+        estimate = max(settings.runtime_memory_min_version_mb,
+                       int(size / (1024 * 1024) * settings.runtime_memory_estimate_factor))
+        needs[version_id] = max(estimate, refused.get(version_id, 0))
+    return needs
+
+
 async def _fresh_runtimes(session: AsyncSession) -> list[Runtime]:
     cutoff = datetime.now(UTC) - timedelta(seconds=settings.runtime_heartbeat_ttl_s)
     rows = (
@@ -117,22 +159,52 @@ async def reconcile(session: AsyncSession) -> dict:
     if orphaned:
         log.warning("dropped assignments on dead runtimes", extra={"count": orphaned})
 
+    # A runtime that refused a version for lack of memory is not going to load
+    # it. Drop the assignment so placement can look elsewhere, but remember the
+    # runtime: re-inserting the same (runtime, version) row in this transaction
+    # would collide with the delete, and it said no anyway.
+    refused_on: dict[str, set[str]] = {}
+    for a in assignments:
+        if (a.runtime_id in runtime_ids and a.state == "failed"
+                and (a.detail or "").startswith(MEMORY_REFUSAL)):
+            await session.delete(a)
+            refused_on.setdefault(a.deployment_id, set()).add(a.runtime_id)
+    if refused_on:
+        assignments = [a for a in assignments
+                       if not (a.state == "failed"
+                               and a.runtime_id in refused_on.get(a.deployment_id, ()))]
+        by_deployment = {}
+        for a in assignments:
+            by_deployment.setdefault(a.deployment_id, []).append(a)
+
     load: dict[str, int] = {r.id: 0 for r in runtimes}
     for a in assignments:
         if a.runtime_id in load and a.state in ACTIVE_STATES:
             load[a.runtime_id] += 1
 
-    version_artifacts = {
-        version_id: (fmt, info)
-        for version_id, fmt, info in (
-            await session.execute(
-                sa.select(ModelVersion.id, ModelVersion.artifact_format,
-                          ModelVersion.artifact_info).where(
-                    ModelVersion.id.in_([d.version_id for d in deployments])
-                )
+    version_rows = (
+        await session.execute(
+            sa.select(ModelVersion.id, ModelVersion.artifact_format,
+                      ModelVersion.artifact_info, ModelVersion.weights_bytes).where(
+                ModelVersion.id.in_([d.version_id for d in deployments])
             )
-        ).all()
-    } if deployments else {}
+        )
+    ).all() if deployments else []
+    version_artifacts = {version_id: (fmt, info) for version_id, fmt, info, _ in version_rows}
+    needs = _memory_needs(runtimes, {version_id: int(size or 0)
+                                     for version_id, _, _, size in version_rows})
+
+    # memory already promised to replicas that are placed but not loaded yet
+    reserved: dict[str, int] = {r.id: 0 for r in runtimes}
+    for a in assignments:
+        if a.runtime_id in reserved and a.state in NOT_YET_RESIDENT:
+            reserved[a.runtime_id] += needs.get(a.version_id, 0)
+
+    def fits(runtime: Runtime, need: int) -> bool:
+        available = _available_mb(runtime)
+        return available is None or need <= available - reserved.get(runtime.id, 0)
+
+    blocked: dict[str, str] = {}
 
     created = removed = 0
     for deployment in deployments:
@@ -151,22 +223,33 @@ async def reconcile(session: AsyncSession) -> dict:
             current = current[: want]
 
         if len(current) < want:
-            taken = {a.runtime_id for a in current}
+            # every runtime already holding a row for it, failed ones included:
+            # (runtime, version) is unique, so a second row there cannot exist
+            taken = {a.runtime_id for a in by_deployment.get(deployment.id, [])}
+            taken |= refused_on.get(deployment.id, set())
             fmt, artifact = version_artifacts.get(deployment.version_id, (None, None))
-            candidates = [
+            need = needs.get(deployment.version_id, 0)
+            capable = [
                 r for r in runtimes
                 if r.id not in taken and _device_fits(deployment, r) and r.status == "ready"
                 and _can_load(r, fmt, artifact)
             ]
+            candidates = [r for r in capable if fits(r, need)]
             if (not candidates and _requirement(fmt, artifact)
                     and not any(_can_load(r, fmt, artifact) for r in runtimes)):
                 # Say which capability is missing. "waiting for a runtime with
                 # capacity" sends people looking for the wrong problem.
-                needs = " or ".join(_requirement(fmt, artifact))
-                deployment.status_detail = (
-                    f"no runtime advertises '{needs}', so a '{fmt}' artifact cannot be loaded - "
+                wanted = " or ".join(_requirement(fmt, artifact))
+                blocked[deployment.id] = (
+                    f"no runtime advertises '{wanted}', so a '{fmt}' artifact cannot be loaded - "
                     f"start one that can (docker compose --profile torch up -d runtime-torch), "
                     f"or convert the weights"
+                )
+            elif capable and len(candidates) < want - len(current):
+                most = max((_available_mb(r) or 0) - reserved.get(r.id, 0) for r in capable)
+                blocked[deployment.id] = (
+                    f"waiting for a runtime with enough memory (needs ~{need} MB, "
+                    f"the most any runtime has free is {max(most, 0)} MB)"
                 )
             # least-loaded first; GPU runtimes win ties for an "auto" deployment
             candidates.sort(
@@ -182,10 +265,11 @@ async def reconcile(session: AsyncSession) -> dict:
                     )
                 )
                 load[runtime.id] = load.get(runtime.id, 0) + 1
+                reserved[runtime.id] = reserved.get(runtime.id, 0) + need
                 created += 1
 
     await session.commit()
-    await refresh_deployment_status(session)
+    await refresh_deployment_status(session, blocked)
     await _heal_stale_checks(session)
     return {
         "runtimes": len(runtimes),
@@ -230,8 +314,14 @@ async def _heal_stale_checks(session: AsyncSession) -> None:
     if changed:
         await session.commit()
 
-async def refresh_deployment_status(session: AsyncSession) -> None:
-    """Roll assignment states up into the deployment status the UI shows."""
+async def refresh_deployment_status(session: AsyncSession,
+                                    blocked: dict[str, str] | None = None) -> None:
+    """Roll assignment states up into the deployment status the UI shows.
+
+    `blocked` carries why placement found no runtime, which says more than the
+    generic "waiting for a runtime with capacity".
+    """
+    blocked = blocked or {}
     deployments = list(
         (await session.execute(sa.select(Deployment).where(Deployment.status != "stopped")))
         .scalars().all()
@@ -288,7 +378,10 @@ async def refresh_deployment_status(session: AsyncSession) -> None:
         elif failed:
             new_status, detail = "failed", "every replica failed to load; check the runtime logs"
         else:
-            new_status, detail = "pending", "waiting for a runtime with capacity"
+            new_status = "pending"
+            detail = blocked.get(deployment.id, "waiting for a runtime with capacity")
+        if new_status == "live" and ready < deployment.replicas and deployment.id in blocked:
+            detail = f"{detail}; {blocked[deployment.id]}"
 
         if new_status != deployment.status or detail != deployment.status_detail:
             deployment.status = new_status
@@ -396,6 +489,9 @@ async def _record_load(session: AsyncSession, assignment: Assignment,
             "errors": [],
             "warnings": [],
         }
+    elif state == "failed" and detail.startswith(MEMORY_REFUSAL):
+        # a full runtime says nothing about the weights; placement moves it
+        return
     elif state == "failed":
         # Only the last replica standing decides: one runtime failing while
         # another serves it is a fleet problem, not a bad artifact.
