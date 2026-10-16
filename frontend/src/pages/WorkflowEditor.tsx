@@ -20,7 +20,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useProjects, useRole } from "../lib/hooks";
+import { can, useRole } from "../lib/hooks";
 import { Dropzone, JsonView } from "../components/bits";
 import { Badge, Button, ErrorNote, Panel, PanelHeader, Spinner, Status, useToast } from "../components/ui";
 import { Segmented } from "../components/toolbar";
@@ -71,9 +71,7 @@ function Editor() {
   const { slug = "" } = useParams();
   const queryClient = useQueryClient();
   const toast = useToast();
-  const projects = useProjects();
-  const projectId = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project"))?.id;
-  const role = useRole(projectId);
+  const role = useRole();
   const editable = can(role, "developer");
 
   const workflow = useQuery<Workflow>({ queryKey: ["workflow", slug], queryFn: () => api(`/v1/workflows/${slug}`) });
