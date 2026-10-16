@@ -37,7 +37,7 @@ async def test_token_acts_as_its_owner(client, admin):
     me = await client.get("/v1/auth/me", headers=bearer(created["token"]))
     assert me.status_code == 200, me.text
     assert me.json()["email"] == "admin@test"
-    assert me.json()["roles"]  # the owner's memberships travel with the token
+    assert me.json()["role"] == "admin"  # the owner's role travels with the token
 
     models = await client.get("/v1/models", headers=bearer(created["token"]))
     assert models.status_code == 200, models.text
@@ -122,7 +122,7 @@ async def test_a_token_cannot_mint_tokens(client, admin):
     assert response.json()["error"]["code"] == "forbidden"
 
 
-async def test_token_is_not_an_api_key(client, admin, project):
+async def test_token_is_not_an_api_key(client, admin):
     """A PAT in x-api-key is a malformed API key; on the inference path a Bearer PAT is the user."""
     created = await make_pat(client, admin.headers)
     response = await client.post("/v1/models/nothing/production/predict",
@@ -154,7 +154,6 @@ async def test_audit_trail(client, admin, db):
         .order_by(AuditLog.created_at)
     )).scalars().all()
     assert [r.action for r in rows] == ["token.create", "token.revoke"]
-    assert all(r.project_id is None for r in rows)
     assert all(r.actor_label == "admin@test" for r in rows)
     assert rows[0].payload["prefix"] == created["prefix"]
 
