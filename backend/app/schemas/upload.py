@@ -10,6 +10,7 @@ from app.schemas.common import ORMModel
 
 
 class UploadInit(BaseModel):
+    version_id: str | None = None
     filename: str
     total_bytes: int = Field(ge=1)
     sha256: str | None = Field(None, min_length=64, max_length=64)
@@ -25,6 +26,7 @@ class UploadInit(BaseModel):
 
 class UploadSessionOut(ORMModel):
     id: str
+    version_id: str | None = None
     filename: str
     total_bytes: int
     received_bytes: int

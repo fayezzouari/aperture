@@ -17,6 +17,10 @@ class UploadSession(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
     model_id: Mapped[str | None] = mapped_column(sa.String(36), index=True)
+    # the version this upload was opened for; null only on sessions opened before 0004
+    version_id: Mapped[str | None] = mapped_column(
+        sa.ForeignKey("model_versions.id", ondelete="CASCADE"), index=True
+    )
     filename: Mapped[str] = mapped_column(sa.String(320))
     total_bytes: Mapped[int] = mapped_column(sa.BigInteger, default=0)
     received_bytes: Mapped[int] = mapped_column(sa.BigInteger, default=0)
