@@ -16,7 +16,6 @@ class AlertEvent(Base):
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
     rule_id: Mapped[str] = mapped_column(sa.ForeignKey("alert_rules.id", ondelete="CASCADE"),
                                         index=True)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     value: Mapped[float] = mapped_column(sa.Float, default=0.0)
     message: Mapped[str] = mapped_column(sa.Text, default="")
     delivered: Mapped[bool] = mapped_column(sa.Boolean, default=False)
