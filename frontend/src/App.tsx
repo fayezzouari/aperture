@@ -22,17 +22,32 @@ const Tokens = lazy(() => import("./pages/Tokens"));
 const Settings = lazy(() => import("./pages/Settings"));
 
 const NAV = [
-  { to: "/", label: "Overview" },
-  { to: "/models", label: "Models" },
-  { to: "/workflows", label: "Workflows" },
-  { to: "/traces", label: "Inferences" },
-  { to: "/fleet", label: "Fleet" },
-  { to: "/jobs", label: "Jobs" },
-  { to: "/reports", label: "Reports" },
-  { to: "/alerts", label: "Alerts" },
-  { to: "/keys", label: "API keys" },
-  { to: "/audit", label: "Audit" },
-  { to: "/settings", label: "Settings" },
+  {
+    group: "Build",
+    items: [
+      { to: "/", label: "Overview" },
+      { to: "/models", label: "Models" },
+      { to: "/workflows", label: "Workflows" },
+    ],
+  },
+  {
+    group: "Operate",
+    items: [
+      { to: "/traces", label: "Inferences" },
+      { to: "/fleet", label: "Fleet" },
+      { to: "/jobs", label: "Jobs" },
+      { to: "/reports", label: "Reports" },
+      { to: "/alerts", label: "Alerts" },
+    ],
+  },
+  {
+    group: "Manage",
+    items: [
+      { to: "/keys", label: "API keys" },
+      { to: "/audit", label: "Audit" },
+      { to: "/settings", label: "Settings" },
+    ],
+  },
 ];
 
 export default function App() {
@@ -84,6 +99,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const projects = useProjects();
   const instance = useInstance();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const active = session.project ?? projects.data?.[0]?.slug ?? null;
   useEffect(() => {
@@ -93,102 +109,147 @@ function Shell({ children }: { children: React.ReactNode }) {
     }
   }, [projects.data, queryClient]);
 
+  // a route change closes the mobile drawer and the account menu
+  useEffect(() => {
+    setDrawerOpen(false);
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  const role = me.data?.is_superadmin
+    ? "Instance admin"
+    : `Role: ${(active && me.data?.roles[projects.data?.find((p) => p.slug === active)?.id ?? ""]) ?? "viewer"}`;
+
+  const sidebar = (
+    <div className="flex h-full flex-col">
+      <div className="flex h-[52px] shrink-0 items-center gap-2.5 px-4">
+        <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
+          <Mark />
+          <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
+        </Link>
+        {instance.data && instance.data.env !== "production" ? (
+          <span className="badge ml-auto">{instance.data.env}</span>
+        ) : null}
+      </div>
+
+      <div className="px-3 pb-3">
+        <select
+          className="select h-8 w-full border-line bg-transparent text-[12.5px]"
+          value={active ?? ""}
+          onChange={(event) => {
+            session.project = event.target.value;
+            queryClient.invalidateQueries();
+            navigate("/");
+          }}
+          aria-label="Active project"
+        >
+          {(projects.data ?? []).map((project) => (
+            <option key={project.slug} value={project.slug}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <nav className="scroll-y flex-1 overflow-y-auto px-2 pb-4" aria-label="Main">
+        {NAV.map((section) => (
+          <div key={section.group} className="mt-3 first:mt-0">
+            <p className="px-2.5 pb-1 text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-3">{section.group}</p>
+            <ul className="flex flex-col gap-px">
+              {section.items.map((item) => {
+                const on = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
+                return (
+                  <li key={item.to}>
+                    <Link
+                      to={item.to}
+                      aria-current={on ? "page" : undefined}
+                      className={`block rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${
+                        on ? "bg-[#1a1a1e] text-ink" : "text-ink-3 hover:bg-[#111113] hover:text-ink-2"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </nav>
+
+      <div className="shrink-0 border-t border-line p-2">
+        <a
+          className="block rounded-md px-2.5 py-1.5 text-[12.5px] text-ink-3 hover:bg-[#111113] hover:text-ink-2"
+          href="/api/docs"
+          target="_blank"
+          rel="noreferrer"
+        >
+          API docs
+        </a>
+        <div className="relative">
+          <button
+            className="w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#111113] hover:text-ink"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-expanded={menuOpen}
+          >
+            {me.data?.email ?? "Account"}
+          </button>
+          {menuOpen ? (
+            <div className="panel absolute bottom-9 left-0 z-50 w-full bg-raised p-1 shadow-xl">
+              <p className="px-2.5 py-1.5 text-[11.5px] text-ink-3">{role}</p>
+              <Link
+                to="/account/tokens"
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
+                onClick={() => setMenuOpen(false)}
+              >
+                Personal access tokens
+              </Link>
+              <button
+                className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
+                onClick={() => {
+                  session.token = null;
+                  session.project = null;
+                  queryClient.clear();
+                  navigate("/login");
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
+        </div>
+        <p className="px-2.5 pt-2 text-[10.5px] leading-snug text-ink-3">
+          {instance.data?.instance_name ?? "Aperture"} {instance.data?.version ? `v${instance.data.version}` : ""} · self-hosted
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-full">
-      <header className="sticky top-0 z-40 border-b border-line bg-black/85 backdrop-blur">
-        <div className="mx-auto flex h-[52px] max-w-[1440px] items-center gap-3 px-4">
-          <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
-            <Mark />
-            <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
-          </Link>
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] border-r border-line bg-black lg:block">{sidebar}</aside>
 
-          <span className="text-ink-3">/</span>
-
-          <select
-            className="select h-7 w-auto min-w-[150px] border-line bg-transparent text-[12.5px]"
-            value={active ?? ""}
-            onChange={(event) => {
-              session.project = event.target.value;
-              queryClient.invalidateQueries();
-              navigate("/");
-            }}
-            aria-label="Active project"
-          >
-            {(projects.data ?? []).map((project) => (
-              <option key={project.slug} value={project.slug}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-
-          {instance.data && instance.data.env !== "production" ? (
-            <span className="badge hidden sm:inline-flex">{instance.data.env}</span>
-          ) : null}
-
-          <div className="ml-auto flex items-center gap-2">
-            <a className="btn btn-sm btn-ghost hidden sm:inline-flex" href="/api/docs" target="_blank" rel="noreferrer">
-              API docs
-            </a>
-            <div className="relative">
-              <button className="btn btn-sm btn-ghost" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen}>
-                {me.data?.email ?? "Account"}
-              </button>
-              {menuOpen ? (
-                <div className="panel absolute right-0 top-9 z-50 w-56 bg-raised p-1 shadow-xl">
-                  <p className="px-2.5 py-1.5 text-[11.5px] text-ink-3">
-                    {me.data?.is_superadmin ? "Instance admin" : `Role: ${(active && me.data?.roles[projects.data?.find((p) => p.slug === active)?.id ?? ""]) ?? "viewer"}`}
-                  </p>
-                  <Link
-                    to="/account/tokens"
-                    className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    Personal access tokens
-                  </Link>
-                  <button
-                    className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
-                    onClick={() => {
-                      session.token = null;
-                      session.project = null;
-                      queryClient.clear();
-                      navigate("/login");
-                    }}
-                  >
-                    Sign out
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <nav className="mx-auto max-w-[1440px] px-2">
-          <ul className="nav-x flex gap-0.5">
-            {NAV.map((item) => {
-              const on = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
-              return (
-                <li key={item.to}>
-                  <Link
-                    to={item.to}
-                    className={`relative inline-block whitespace-nowrap px-2.5 py-2 text-[13px] transition-colors ${on ? "text-ink" : "text-ink-3 hover:text-ink-2"}`}
-                  >
-                    {item.label}
-                    {on ? <span className="absolute inset-x-2 -bottom-px h-[1.5px] bg-ink" /> : null}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+      {/* below lg the sidebar becomes a drawer behind a slim top bar */}
+      <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-line bg-black/85 px-4 backdrop-blur lg:hidden">
+        <button className="btn btn-sm btn-ghost" onClick={() => setDrawerOpen(true)} aria-label="Open navigation" aria-expanded={drawerOpen}>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+        <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
+          <Mark />
+          <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
+        </Link>
       </header>
+      {drawerOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-[260px] max-w-[85vw] border-r border-line bg-black">{sidebar}</aside>
+        </div>
+      ) : null}
 
-      <main className="mx-auto max-w-[1440px] px-4 py-6">{children}</main>
-
-      <footer className="mx-auto max-w-[1440px] px-4 pb-8 pt-2">
-        <p className="text-[11px] text-ink-3">
-          {instance.data?.instance_name ?? "Aperture"} {instance.data?.version ? `v${instance.data.version}` : ""} · self-hosted · no outbound calls at runtime
-        </p>
-      </footer>
+      <div className="lg:pl-[232px]">
+        <main className="mx-auto max-w-[1440px] px-4 py-6 lg:px-6">{children}</main>
+      </div>
     </div>
   );
 }
