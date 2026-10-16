@@ -458,6 +458,7 @@ async def readyz() -> JSONResponse:
         "control_plane_error": control.last_error if control else None,
         "versions_ready": ready,
         "versions_failed": failed,
+        "memory": store.memory(),
         "uptime_s": round(time.time() - state.get("started_at", time.time()), 1),
     })
 
@@ -469,6 +470,7 @@ async def runtime_state(x_runtime_token: str = Header(None)) -> dict:
     return {
         "runtime_id": state["runtime_id"],
         "device": state["device"],
+        "memory": store.memory(),
         "loaded": [
             {**m.report(), "model": m.model_slug, "version": m.version,
              "provider": m.backend.io.provider if m.backend else None,
