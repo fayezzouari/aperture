@@ -19,7 +19,6 @@ class DriftWindow(Base):
     )
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     model_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     version_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     window_start: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), index=True)
