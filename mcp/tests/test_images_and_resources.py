@@ -64,9 +64,12 @@ async def test_resources(server):
         "aperture://models/part-detection/versions/3/config"))
     assert json.loads(contents[0].content)["preprocess"] == {"resize": "letterbox"}
 
-    contents = list(await server.read_resource("aperture://projects/default/models/part-detection"))
+    contents = list(await server.read_resource("aperture://models/part-detection"))
     card = json.loads(contents[0].content)
     assert card["model"]["slug"] == "part-detection" and card["deployments"]
+
+    contents = list(await server.read_resource("aperture://me"))
+    assert json.loads(contents[0].content) == fx.ME
 
 
 def test_fixture_overlay_is_a_real_png():
