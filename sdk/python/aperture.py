@@ -77,11 +77,10 @@ class Prediction:
 
 
 class Aperture:
-    def __init__(self, base_url: str, *, api_key: str | None = None, project: str | None = None,
+    def __init__(self, base_url: str, *, api_key: str | None = None,
                  timeout: float = 30.0, client: httpx.Client | None = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("APERTURE_KEY", "")
-        self.project = project
         self._client = client or httpx.Client(timeout=timeout)
 
     # ------------------------------------------------------------------ helpers
@@ -90,8 +89,6 @@ class Aperture:
         headers = {}
         if self.api_key:
             headers["x-api-key"] = self.api_key
-        if self.project:
-            headers["x-aperture-project"] = self.project
         headers.update(extra or {})
         return headers
 

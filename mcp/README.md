@@ -5,7 +5,7 @@ instance and it can read the registry, the fleet, the traffic and the audit log,
 run an image through a model, and *look* at the overlay that came back.
 
 It is a client of `/v1` and nothing else: no database credentials, no Redis, no
-bypass. Everything it can do is what the token's own project roles allow.
+bypass. Everything it can do is what the token owner's role allows.
 
 ## Run it
 
@@ -15,7 +15,6 @@ tokens**), then:
 ```bash
 APERTURE_URL=http://localhost:8080 \
 APERTURE_TOKEN=ap_pat_xxxx.yyyy \
-APERTURE_PROJECT=default \
   uvx --from . aperture-mcp
 ```
 
@@ -25,22 +24,20 @@ In Claude Code:
 claude mcp add aperture \
   -e APERTURE_URL=http://localhost:8080 \
   -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \
-  -e APERTURE_PROJECT=default \
   -- uvx --from /path/to/aperture/mcp aperture-mcp
 ```
 
-Claude Desktop and Cursor take the same three variables as JSON; the README at
+Claude Desktop and Cursor take the same two variables as JSON; the README at
 the repository root has that form.
 
 | Variable | |
 |---|---|
 | `APERTURE_URL` | required, e.g. `http://localhost:8080` |
 | `APERTURE_TOKEN` | required. `ap_pat_…` for everything; an `ap_…` API key registers only `predict` and `run_workflow`, because that is all a key can reach |
-| `APERTURE_PROJECT` | optional default project slug; every tool also takes `project=` |
 
 ## Tools
 
-**Registry** — `list_projects`, `list_models`, `get_model`, `list_versions`,
+**Registry** — `list_models`, `get_model`, `list_versions`,
 `get_version`, `compare_versions`, `list_presets`, `get_preset`.
 
 **Operations** — `get_overview`, `get_metrics`, `get_errors`, `list_runtimes`,
@@ -63,8 +60,8 @@ error code, the message, the request id, and a hint where there is one.
 ## Resources
 
 ```
-aperture://projects
-aperture://projects/{slug}/models/{ref}
+aperture://me
+aperture://models/{ref}
 aperture://models/{ref}/versions/{n}/config
 aperture://presets/{name}
 aperture://schema/config

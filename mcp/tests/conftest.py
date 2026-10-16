@@ -57,7 +57,7 @@ class FakeApi:
 def api() -> FakeApi:
     fake = FakeApi()
     fake.routes.update({
-        ("GET", "/v1/projects"): fx.PROJECTS,
+        ("GET", "/v1/auth/me"): fx.ME,
         ("GET", "/v1/models"): [fx.MODEL],
         ("GET", "/v1/models/part-detection"): fx.MODEL,
         ("GET", "/v1/models/part-detection/versions"): [fx.VERSION],
@@ -77,7 +77,7 @@ def api() -> FakeApi:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(url="http://api.test", token=TOKEN, project="default")
+    return Settings(url="http://api.test", token=TOKEN)
 
 
 @pytest.fixture
