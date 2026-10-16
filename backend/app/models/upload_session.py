@@ -16,7 +16,6 @@ class UploadSession(Base, TimestampMixin):
     __tablename__ = "upload_sessions"
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     model_id: Mapped[str | None] = mapped_column(sa.String(36), index=True)
     filename: Mapped[str] = mapped_column(sa.String(320))
     total_bytes: Mapped[int] = mapped_column(sa.BigInteger, default=0)
