@@ -13,10 +13,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
+from aperture_core.results import ErrorBody
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aperture_core.results import ErrorBody
 from app import audit, telemetry
 from app.db import get_session
 from app.deps import (
@@ -25,12 +25,10 @@ from app.deps import (
     current_user,
     inference_principal,
     pagination,
-    project_dep,
-    resolve_project,
 )
 from app.errors import ApiError
 from app.metrics import errors_total, request_latency, requests_total
-from app.models import Project, Workflow, WorkflowRun
+from app.models import Workflow, WorkflowRun
 from app.schemas import (
     WorkflowIn,
     WorkflowOut,
@@ -44,10 +42,10 @@ from app.serialize import dump, dump_loaded
 from app.services.gateway import (
     InputImage,
     Stopwatch,
+    _guard_size,
     decode_b64_input,
     fetch_url_image,
     new_request_id,
-    _guard_size,
 )
 from app.services.workflow import WorkflowEngine, starter_graph, validate_graph
 from app.settings import settings
@@ -94,14 +92,12 @@ async def _decorate(session: AsyncSession, workflow: Workflow, *, with_stats: bo
 
 
 @router.get("", response_model=list[WorkflowOut])
-async def list_workflows(project: Project = Depends(project_dep),
-                         principal: Principal = Depends(current_user),
+async def list_workflows(principal: Principal = Depends(current_user),
                          session: AsyncSession = Depends(get_session)) -> list[WorkflowOut]:
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     rows = (
         await session.execute(
-            sa.select(Workflow).where(Workflow.project_id == project.id,
-                                      Workflow.archived_at.is_(None))
+            sa.select(Workflow).where(Workflow.archived_at.is_(None))
             .order_by(Workflow.updated_at.desc())
         )
     ).scalars().all()
@@ -110,28 +106,26 @@ async def list_workflows(project: Project = Depends(project_dep),
 
 @router.post("", response_model=WorkflowOut, status_code=201)
 async def create_workflow(body: WorkflowIn, request: Request,
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> WorkflowOut:
-    principal.require(project.id, "developer")
+    principal.require("developer")
     existing = (
         await session.execute(
-            sa.select(Workflow).where(Workflow.project_id == project.id,
-                                      Workflow.slug == body.slug)
+            sa.select(Workflow).where(Workflow.slug == body.slug)
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise ApiError("slug_taken", f"a workflow '{body.slug}' already exists in this project")
+        raise ApiError("slug_taken", f"a workflow '{body.slug}' already exists")
 
     workflow = Workflow(
-        project_id=project.id, slug=body.slug, name=body.name, description=body.description,
+        slug=body.slug, name=body.name, description=body.description,
         owner=body.owner, labels=body.labels, graph=body.graph or starter_graph(),
         created_by=principal.id,
     )
     session.add(workflow)
     await session.flush()
-    await audit.record(session, action="workflow.create", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="workflow.create", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="workflow", target_id=workflow.id, target_label=workflow.slug,
                        client_ip=request.client.host if request.client else None)
     await session.commit()
@@ -139,29 +133,28 @@ async def create_workflow(body: WorkflowIn, request: Request,
 
 
 @router.get("/{slug}", response_model=WorkflowOut)
-async def get_workflow(slug: str, project: Project = Depends(project_dep),
+async def get_workflow(slug: str,
                        principal: Principal = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> WorkflowOut:
-    principal.require(project.id, "viewer")
-    return await _decorate(session, await _find(session, project.id, slug))
+    principal.require("viewer")
+    return await _decorate(session, await _find(session, slug))
 
 
 @router.patch("/{slug}", response_model=WorkflowOut)
 async def update_workflow(slug: str, body: WorkflowPatch, request: Request,
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> WorkflowOut:
     """Saving the canvas. The draft is free to be broken; publishing is not."""
-    principal.require(project.id, "developer")
-    workflow = await _find(session, project.id, slug)
+    principal.require("developer")
+    workflow = await _find(session, slug)
     changes = body.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(workflow, key, value)
     if "graph" in changes and workflow.status == "published":
         # the published snapshot keeps serving until the draft is published again
         workflow.status = "draft"
-    await audit.record(session, action="workflow.update", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="workflow.update", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="workflow", target_id=workflow.id, target_label=workflow.slug,
                        payload={"fields": sorted(changes)},
                        client_ip=request.client.host if request.client else None)
@@ -170,22 +163,22 @@ async def update_workflow(slug: str, body: WorkflowPatch, request: Request,
 
 
 @router.post("/{slug}/validate", response_model=WorkflowValidateOut)
-async def validate(slug: str, project: Project = Depends(project_dep),
+async def validate(slug: str,
                    principal: Principal = Depends(current_user),
                    session: AsyncSession = Depends(get_session)) -> WorkflowValidateOut:
-    principal.require(project.id, "viewer")
-    workflow = await _find(session, project.id, slug)
+    principal.require("viewer")
+    workflow = await _find(session, slug)
     problems = validate_graph(workflow.graph or {})
     return WorkflowValidateOut(ok=not problems, problems=problems)
 
 
 @router.post("/{slug}/publish", response_model=WorkflowOut)
-async def publish(slug: str, request: Request, project: Project = Depends(project_dep),
+async def publish(slug: str, request: Request,
                   principal: Principal = Depends(current_user),
                   session: AsyncSession = Depends(get_session)) -> WorkflowOut:
     """Snapshot the draft as what callers get. Refuses an invalid graph."""
-    principal.require(project.id, "developer")
-    workflow = await _find(session, project.id, slug)
+    principal.require("developer")
+    workflow = await _find(session, slug)
     problems = validate_graph(workflow.graph or {})
     if problems:
         raise ApiError(
@@ -197,8 +190,8 @@ async def publish(slug: str, request: Request, project: Project = Depends(projec
     workflow.revision += 1
     workflow.status = "published"
     workflow.published_at = datetime.now(UTC)
-    await audit.record(session, action="workflow.publish", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="workflow.publish", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="workflow", target_id=workflow.id, target_label=workflow.slug,
                        payload={"revision": workflow.revision},
                        client_ip=request.client.host if request.client else None)
@@ -207,13 +200,13 @@ async def publish(slug: str, request: Request, project: Project = Depends(projec
 
 
 @router.delete("/{slug}", status_code=204)
-async def delete_workflow(slug: str, request: Request, project: Project = Depends(project_dep),
+async def delete_workflow(slug: str, request: Request,
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> None:
-    principal.require(project.id, "admin")
-    workflow = await _find(session, project.id, slug)
-    await audit.record(session, action="workflow.delete", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label,
+    principal.require("admin")
+    workflow = await _find(session, slug)
+    await audit.record(session, action="workflow.delete", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="workflow", target_id=workflow.id, target_label=workflow.slug,
                        client_ip=request.client.host if request.client else None)
     await session.delete(workflow)
@@ -242,8 +235,7 @@ async def run_workflow(
     traceparent = ({"traceparent": request.headers["traceparent"]}
                    if "traceparent" in request.headers else {})
 
-    project = await resolve_project(request, principal, session)
-    workflow = await _find(session, project.id, slug)
+    workflow = await _find(session, slug)
     images, body = await _collect(request)
     _guard_size(sum(len(image.data) for image in images), len(images))
 
@@ -265,7 +257,7 @@ async def run_workflow(
                 "from the editor",
             )
 
-    engine = WorkflowEngine(session, project, request_id=request_id,
+    engine = WorkflowEngine(session, request_id=request_id,
                             trace_headers=traceparent,
                             want_previews=body.include_previews and principal.kind == "user",
                             response_format=(response_format or settings.default_response_format),
@@ -275,7 +267,7 @@ async def run_workflow(
         result = await engine.run(graph, images)
 
     status = result.status
-    labels = (project.slug, f"workflow:{slug}", str(workflow.revision), "workflow", status)
+    labels = (f"workflow:{slug}", str(workflow.revision), "workflow", status)
     requests_total.labels(*labels).inc()
     request_latency.labels(f"workflow:{slug}", str(workflow.revision), "workflow").observe(
         result.total_ms / 1000
@@ -284,7 +276,7 @@ async def run_workflow(
         errors_total.labels(f"workflow:{slug}", str(workflow.revision), result.error_code).inc()
 
     run = WorkflowRun(
-        workflow_id=workflow.id, project_id=project.id, request_id=request_id, trace_id=trace_id,
+        workflow_id=workflow.id, request_id=request_id, trace_id=trace_id,
         revision=workflow.revision if not body.draft else 0, status=status,
         error_code=result.error_code, error_message=result.error_message,
         failed_node=result.failed_node, caller_type=principal.kind, caller_id=principal.id,
@@ -312,11 +304,10 @@ async def run_workflow(
 @router.get("/{slug}/runs", response_model=list[WorkflowRunSummary])
 async def list_runs(slug: str, page: Page = Depends(pagination),
                     status: str | None = Query(None),
-                    project: Project = Depends(project_dep),
                     principal: Principal = Depends(current_user),
                     session: AsyncSession = Depends(get_session)) -> list[WorkflowRunSummary]:
-    principal.require(project.id, "viewer")
-    workflow = await _find(session, project.id, slug)
+    principal.require("viewer")
+    workflow = await _find(session, slug)
     stmt = sa.select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id)
     if status:
         stmt = stmt.where(WorkflowRun.status == status)
@@ -331,15 +322,14 @@ async def list_runs(slug: str, page: Page = Depends(pagination),
 # ---------------------------------------------------------------------- helpers
 
 
-async def _find(session: AsyncSession, project_id: str, slug: str) -> Workflow:
+async def _find(session: AsyncSession, slug: str) -> Workflow:
     found = (
         await session.execute(
-            sa.select(Workflow).where(Workflow.project_id == project_id,
-                                      sa.or_(Workflow.slug == slug, Workflow.id == slug))
+            sa.select(Workflow).where(sa.or_(Workflow.slug == slug, Workflow.id == slug))
         )
     ).scalar_one_or_none()
     if found is None:
-        raise ApiError("not_found", f"no workflow '{slug}' in this project")
+        raise ApiError("not_found", f"no workflow '{slug}'")
     return found
 
 
