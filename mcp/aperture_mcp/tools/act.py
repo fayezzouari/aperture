@@ -33,8 +33,7 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
     async def predict(model: str, images: list[str], ref: str = "production",
                       overrides: dict[str, Any] | None = None,
                       inputs: dict[str, Any] | None = None, ondemand: bool = False,
-                      include_overlay: bool = True, format: str | None = None,
-                      project: str | None = None) -> list[str | Image]:
+                      include_overlay: bool = True, format: str | None = None) -> list[str | Image]:
         """Run images through a model and see what it returns, drawn on the image.
 
         `model` is the slug; `ref` a tag (production, staging) or a version number.
@@ -56,7 +55,7 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
             body["inputs"] = inputs
         params = {"ondemand": ondemand or None, "format": format}
         response = await client.post_json(f"/v1/models/{model}/{ref}/predict", body,
-                                          params=params, project=project,
+                                          params=params,
                                           timeout=settings.predict_timeout_s)
         if format == "roboflow":
             return [json.dumps(response, indent=1, default=str)]
@@ -67,8 +66,7 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
     @mcp.tool(annotations=ACT, structured_output=False)
     @guard
     async def run_workflow(slug: str, images: list[str], params: dict[str, Any] | None = None,
-                           draft: bool = False, format: str | None = None,
-                           project: str | None = None) -> list[str | Image]:
+                           draft: bool = False, format: str | None = None) -> list[str | Image]:
         """Run images through a workflow (several models as one graph). `params` are the
         request fields gate nodes route on. `draft=true` runs the unpublished graph. Node
         previews, when the workflow produces them, come back as image blocks."""
@@ -83,7 +81,7 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
         if draft:
             body["draft"] = True
         response = await client.post_json(f"/v1/workflows/{slug}/run", body,
-                                          params={"format": format}, project=project,
+                                          params={"format": format},
                                           timeout=settings.predict_timeout_s)
         parts: list[str | Image] = [json.dumps(trim.workflow_run_summary(response), indent=1,
                                                default=str)]
