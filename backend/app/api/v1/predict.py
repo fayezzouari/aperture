@@ -12,20 +12,21 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from aperture_core.formats import FORMATS, to_roboflow_batch
 from aperture_core.results import LatencyBreakdown, PredictResponse
-from app import telemetry
-from app.deps import Principal, get_model_or_404, inference_principal, resolve_project
-from app.db import get_session
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import telemetry
+from app.db import get_session
+from app.deps import Principal, get_model_or_404, inference_principal
 from app.errors import ApiError
 from app.metrics import (
     batch_size as batch_hist,
+)
+from app.metrics import (
     errors_total,
     images_total,
     observe_stages,
@@ -34,11 +35,11 @@ from app.metrics import (
 )
 from app.schemas import PredictJSON
 from app.security import key_allows_model
-from app.settings import settings
 from app.services import capture as capture_service
 from app.services.gateway import (
     InputImage,
     Stopwatch,
+    _guard_size,
     build_runtime_payload,
     call_runtime,
     decode_b64_input,
@@ -48,10 +49,10 @@ from app.services.gateway import (
     pick_replica,
     resolve_target,
     sanitise_overrides,
-    _guard_size,
 )
 from app.services.ondemand import ensure_serving
 from app.services.resolver import resolve
+from app.settings import settings
 
 log = logging.getLogger("aperture.predict")
 router = APIRouter(tags=["inference"])
@@ -218,8 +219,8 @@ async def predict(
     trace_id, span_id = telemetry.current_ids()
     traceparent = {"traceparent": request.headers["traceparent"]} if "traceparent" in request.headers else {}
 
-    project = await resolve_project(request, principal, session)
-    model_row = await get_model_or_404(session, project.id, model)
+    policy = await capture_service.load_policy(session)
+    model_row = await get_model_or_404(session, model)
 
     if principal.kind == "api_key" and principal.api_key is not None:
         if not key_allows_model(principal.api_key, model_row.id, model_row.slug):
@@ -238,19 +239,19 @@ async def predict(
         _guard_size(sum(len(i.data) for i in images), len(images))
         overrides = sanitise_overrides(body.overrides)
         if ondemand:
-            principal.require(project.id, "developer")
+            principal.require("developer")
             picked = await resolve(session, model_row, ref)
-            await ensure_serving(session, project, model_row, picked.version, principal,
+            await ensure_serving(session, model_row, picked.version, principal,
                                  client_ip=_client_ip(request))
         resolved, target, shadows = await resolve_target(session, model_row, ref)
     except ApiError as exc:
         spawn(_log_rejection(
-            project=project, model_row=model_row, ref=ref, request_id=request_id,
+            policy=policy, model_row=model_row, ref=ref, request_id=request_id,
             trace_id=trace_id, span_id=span_id, principal=principal,
             client_ip=_client_ip(request), error=exc, elapsed_ms=watch.ms(),
             images=[(i.data, i.name) for i in images],
         ))
-        requests_total.labels(project.slug, model_row.slug, "unknown", "primary",
+        requests_total.labels(model_row.slug, "unknown", "primary",
                               "rejected" if exc.http_status in (429, 503) else "error").inc()
         errors_total.labels(model_row.slug, "unknown", exc.code).inc()
         response.headers["x-request-id"] = request_id
@@ -306,13 +307,13 @@ async def predict(
         "rejected" if error.http_status in (429, 503) else
         "timeout" if error.code == "timeout" else "error"
     )
-    labels = (project.slug, model_row.slug, version_label, target.route, status)
+    labels = (model_row.slug, version_label, target.route, status)
     requests_total.labels(*labels).inc()
     request_latency.labels(model_row.slug, version_label, target.route).observe(gateway_ms / 1000)
     if error is not None:
         errors_total.labels(model_row.slug, version_label, error.code).inc()
     else:
-        images_total.labels(project.slug, model_row.slug, version_label).inc(len(images))
+        images_total.labels(model_row.slug, version_label).inc(len(images))
         observe_stages(model_row.slug, version_label, latency)
         if reply and reply.batch_executed:
             batch_hist.labels(model_row.slug, version_label).observe(reply.batch_executed)
@@ -328,13 +329,13 @@ async def predict(
                           len(r.texts or []) for r in parsed)
 
     do_capture = capture_service.should_capture(
-        project_rate=project.capture_sample_rate, forced=body.capture, is_error=error is not None
+        override_rate=policy.sample_rate, forced=body.capture, is_error=error is not None
     )
     capture_meta: dict = {}
     if do_capture:
         capture_meta = {"pending": True}
         spawn(_capture_and_log(
-            project=project, model_row=model_row, target=target, resolved_tag=resolved.tag,
+            policy=policy, model_row=model_row, target=target, resolved_tag=resolved.tag,
             request_id=request_id, trace_id=trace_id, span_id=span_id, principal=principal,
             client_ip=_client_ip(request), status=status, error=error, latency=latency,
             reply_runtime_id=(reply.runtime_id if reply else (replica or {}).get("runtime_id")),
@@ -345,7 +346,7 @@ async def predict(
         ))
     else:
         spawn(_log_only(
-            project=project, model_row=model_row, target=target, resolved_tag=resolved.tag,
+            policy=policy, model_row=model_row, target=target, resolved_tag=resolved.tag,
             request_id=request_id, trace_id=trace_id, span_id=span_id, principal=principal,
             client_ip=_client_ip(request), status=status, error=error, latency=latency,
             reply_runtime_id=(reply.runtime_id if reply else (replica or {}).get("runtime_id")),
@@ -421,18 +422,18 @@ async def _log_only(**kw) -> None:
 
 async def _capture_and_log(*, images: list[tuple[bytes, str]], overlays: list[str], **kw) -> None:
     stored = await capture_service.store_payloads(
-        project_slug=kw["project"].slug, model_slug=kw["model_row"].slug,
+        model_slug=kw["model_row"].slug,
         request_id=kw["request_id"], images=images, overlays=overlays,
     )
     await _emit_record(capture=stored, **kw)
 
 
-async def _emit_record(*, project, model_row, target, resolved_tag, request_id, trace_id, span_id,
+async def _emit_record(*, policy, model_row, target, resolved_tag, request_id, trace_id, span_id,
                        principal, client_ip, status, error, latency, reply_runtime_id, input_ref,
                        stats, results, confidence, overrides, detection_count, capture) -> None:
     record = capture_service.build_record(
-        request_id=request_id, trace_id=trace_id, span_id=span_id, project_id=project.id,
-        project_slug=project.slug, model=model_row, version=target.version, tag=resolved_tag,
+        request_id=request_id, trace_id=trace_id, span_id=span_id, model=model_row,
+        version=target.version, tag=resolved_tag,
         route=target.route, principal_kind=principal.kind, principal_id=principal.id,
         principal_label=principal.label, client_ip=client_ip, status=status,
         http_status=error.http_status if error else 200,
@@ -443,7 +444,7 @@ async def _emit_record(*, project, model_row, target, resolved_tag, request_id, 
         input_stats={"images": stats[:8], "summary": _stats_summary(stats)},
         output=capture_service.truncate_output(results), confidence=confidence,
         overrides=overrides, capture=capture, detection_count=detection_count,
-        retention=capture_service.retention_days(project.capture_retention_days),
+        retention=capture_service.retention_days(policy.retention_days),
     )
     await capture_service.emit(record)
 
@@ -460,7 +461,7 @@ def _stats_summary(stats: list[dict]) -> dict:
     return out
 
 
-async def _log_rejection(*, project, model_row, ref, request_id, trace_id, span_id, principal,
+async def _log_rejection(*, policy, model_row, ref, request_id, trace_id, span_id, principal,
                          client_ip, error, elapsed_ms, images) -> None:
     """R5.1 for requests that never reached a runtime.
 
@@ -472,16 +473,16 @@ async def _log_rejection(*, project, model_row, ref, request_id, trace_id, span_
     capture_meta: dict = {}
     is_error = True
     if images and capture_service.should_capture(
-        project_rate=project.capture_sample_rate, forced=None, is_error=is_error
+        override_rate=policy.sample_rate, forced=None, is_error=is_error
     ):
         capture_meta = await capture_service.store_payloads(
-            project_slug=project.slug, model_slug=model_row.slug, request_id=request_id,
+            model_slug=model_row.slug, request_id=request_id,
             images=images, overlays=[],
         )
 
     record = capture_service.build_record(
-        request_id=request_id, trace_id=trace_id, span_id=span_id, project_id=project.id,
-        project_slug=project.slug, model=model_row, version=None, tag=_tag_hint(ref),
+        request_id=request_id, trace_id=trace_id, span_id=span_id, model=model_row,
+        version=None, tag=_tag_hint(ref),
         route="primary", principal_kind=principal.kind, principal_id=principal.id,
         principal_label=principal.label, client_ip=client_ip,
         status="rejected" if error.http_status in (429, 503) else "error",
@@ -493,7 +494,7 @@ async def _log_rejection(*, project, model_row, ref, request_id, trace_id, span_
                    "bytes": sum(len(data) for data, _ in images)},
         input_stats={}, output={}, confidence={}, overrides={}, capture=capture_meta,
         detection_count=0,
-        retention=capture_service.retention_days(project.capture_retention_days),
+        retention=capture_service.retention_days(policy.retention_days),
     )
     await capture_service.emit(record)
 
