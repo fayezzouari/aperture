@@ -33,10 +33,10 @@ def _p(fraction: float):
 
 
 def base_filters(
-    *, project_id: str, since: datetime, model_id: str | None = None,
+    *, since: datetime, model_id: str | None = None,
     version_id: str | None = None, route: str | None = None,
 ) -> list:
-    clauses = [InferenceLog.project_id == project_id, InferenceLog.created_at >= since]
+    clauses = [InferenceLog.created_at >= since]
     if model_id:
         clauses.append(InferenceLog.model_id == model_id)
     if version_id:
@@ -47,11 +47,11 @@ def base_filters(
 
 
 async def summary(
-    session: AsyncSession, *, project_id: str, window_minutes: int = 1440,
+    session: AsyncSession, *, window_minutes: int = 1440,
     model_id: str | None = None, version_id: str | None = None,
 ) -> dict:
     since = datetime.now(UTC) - timedelta(minutes=window_minutes)
-    clauses = base_filters(project_id=project_id, since=since, model_id=model_id,
+    clauses = base_filters(since=since, model_id=model_id,
                            version_id=version_id)
 
     row = (
@@ -138,11 +138,11 @@ def _round(value) -> float | None:
 
 
 async def usage_rows(
-    session: AsyncSession, *, project_id: str, since_hours: int, group_by: str,
+    session: AsyncSession, *, since_hours: int, group_by: str,
     model_id: str | None = None,
 ) -> list[dict]:
     since = datetime.now(UTC) - timedelta(hours=since_hours)
-    clauses = base_filters(project_id=project_id, since=since, model_id=model_id)
+    clauses = base_filters(since=since, model_id=model_id)
 
     if group_by == "model":
         key_col, label_col = InferenceLog.model_id, InferenceLog.model_slug
@@ -189,7 +189,7 @@ async def usage_rows(
         for r in rows
     ]
 
-    # A slug is unique per project but a *deleted and recreated* model reuses it,
+    # A slug is unique at any one time, but a *deleted and recreated* model reuses it,
     # so grouping by id can produce several rows with the same label. Reading four
     # identical rows and guessing which is which is worse than a short suffix.
     seen: dict[str, int] = {}
@@ -201,7 +201,7 @@ async def usage_rows(
     return out
 
 
-async def model_cards(session: AsyncSession, *, project_id: str, model_ids: list[str],
+async def model_cards(session: AsyncSession, *, model_ids: list[str],
                       hours: int = 24) -> dict[str, dict]:
     """The per-model traffic figures the catalog shows next to each row."""
     if not model_ids:
@@ -217,7 +217,7 @@ async def model_cards(session: AsyncSession, *, project_id: str, model_ids: list
                 ).label("errors"),
                 _p(0.95).label("p95"),
             )
-            .where(InferenceLog.project_id == project_id, InferenceLog.created_at >= since,
+            .where(InferenceLog.created_at >= since,
                    InferenceLog.model_id.in_(model_ids))
             .group_by(InferenceLog.model_id)
         )
@@ -275,10 +275,10 @@ async def consumer_labels(session: AsyncSession, caller_ids: list[str]) -> dict[
     return {k: v for k, v in rows}
 
 
-async def error_breakdown(session: AsyncSession, *, project_id: str, since_hours: int,
+async def error_breakdown(session: AsyncSession, *, since_hours: int,
                           model_id: str | None = None) -> list[dict]:
     since = datetime.now(UTC) - timedelta(hours=since_hours)
-    clauses = base_filters(project_id=project_id, since=since, model_id=model_id)
+    clauses = base_filters(since=since, model_id=model_id)
     rows = (
         await session.execute(
             sa.select(
