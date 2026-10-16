@@ -1,13 +1,13 @@
-"""Job rows never hand a credential back to whoever can read the project."""
+"""Job rows never hand a credential back to whoever can read them."""
 
 from __future__ import annotations
 
 from app.models import Job
 
 
-async def test_roboflow_import_key_is_never_returned(client, admin, viewer, db, project):
+async def test_roboflow_import_key_is_never_returned(client, admin, viewer, db):
     # a row written before the key moved onto the queued task still holds it in params
-    job = Job(project_id=project.id, kind="roboflow_import", status="queued",
+    job = Job(kind="roboflow_import", status="queued",
               created_by=admin.user.id,
               params={"ref": "ws/proj/3", "api_key": "rf_live_secret", "workspace": "ws",
                       "nested": {"token": "abc"}, "slug": "imported"})
