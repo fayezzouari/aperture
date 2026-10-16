@@ -16,18 +16,17 @@ JSON = "application/json"
 def register_resources(mcp: MCPServer, state: AppState) -> None:
     client = state.client
 
-    @mcp.resource("aperture://projects", mime_type=JSON,
-                  description="Projects visible to this token and the caller's role in each")
-    async def projects() -> str:
-        rows = await client.get("/v1/projects")
-        return _dump([trim.project_row(r) for r in rows])
+    @mcp.resource("aperture://me", mime_type=JSON,
+                  description="Who this token signs in as and the instance role it carries")
+    async def me() -> str:
+        return _dump(trim.user_row(await client.get("/v1/auth/me")))
 
-    @mcp.resource("aperture://projects/{slug}/models/{ref}", mime_type=JSON,
+    @mcp.resource("aperture://models/{ref}", mime_type=JSON,
                   description="A model card: tags, versions and live deployments")
-    async def model_card(slug: str, ref: str) -> str:
-        model = await client.get(f"/v1/models/{ref}", project=slug)
-        versions = await client.get(f"/v1/models/{ref}/versions", project=slug)
-        deployments = await client.get(f"/v1/models/{ref}/deployments", project=slug)
+    async def model_card(ref: str) -> str:
+        model = await client.get(f"/v1/models/{ref}")
+        versions = await client.get(f"/v1/models/{ref}/versions")
+        deployments = await client.get(f"/v1/models/{ref}/deployments")
         return _dump({
             "model": trim.model_row(model),
             "versions": [trim.version_row(v) for v in versions],
