@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useProjects, useRole } from "../lib/hooks";
+import { can, useRole } from "../lib/hooks";
 import { Badge, Button, CodeBlock, EmptyState, ErrorNote, Field, Modal, Panel, PanelHeader, Spinner, useToast } from "../components/ui";
 
 type Key = {
@@ -22,9 +22,7 @@ type Key = {
 export default function Keys() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const projects = useProjects();
-  const projectId = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project"))?.id;
-  const role = useRole(projectId);
+  const role = useRole();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<(Key & { key: string }) | null>(null);
 
@@ -231,7 +229,7 @@ function CreateKey({ open, models, onClose, onCreated }: { open: boolean; models
           <label className="flex cursor-pointer items-start gap-2 text-[12.5px] text-ink-2">
             <input type="checkbox" className="mt-0.5" checked={allModels} onChange={(event) => setAllModels(event.target.checked)} />
             <span>
-              Every model in this project
+              Every model
               <span className="block text-[11.5px] text-ink-3">Convenient, but a leaked key then reaches everything. Prefer an explicit list.</span>
             </span>
           </label>
