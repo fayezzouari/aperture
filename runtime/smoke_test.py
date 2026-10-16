@@ -233,9 +233,48 @@ async def main():
                        and counts == [1 + i % 3 for i in range(6)]
                        and static.batcher.max_batch_size == 1, counts))
 
+        # 18 - a version that does not fit the memory budget is refused, not loaded
+        from runtime.memory import rss_mb
+        from runtime.settings import settings as rt_settings
+
+        def _assign(version_id: str) -> Loaded:
+            loaded = Loaded(version_id=version_id, model_slug="big", version=1, config=cfg,
+                            assignment={"weights_key": "k", "weights_bucket": "b",
+                                        "weights_sha256": f"sha-{version_id}",
+                                        "artifact_format": "onnx"})
+            store.models[version_id] = loaded
+            return loaded
+
+        store._fetch_weights = lambda assignment: _resolved(onnx_path)
+        rt_settings.memory_budget_mb = rss_mb() + 10  # 10 MB of headroom
+        rt_settings.memory_min_version_mb = 512        # and a version that wants 512
+        refused = _assign("v-big")
+        await store._load("v-big")
+        r = await c.get("/readyz")
+        checks.append(("over-budget version is refused with the reason",
+                       refused.state == "failed" and refused.backend is None
+                       and refused.detail.startswith("insufficient memory: needs ~512 MB")
+                       and "v-big" in r.json()["versions_failed"]
+                       and r.json()["memory"]["budget_mb"] == rt_settings.memory_budget_mb,
+                       refused.detail))
+
+        # 19 - with room it loads, and what it cost is measured and remembered
+        rt_settings.memory_budget_mb = rss_mb() + 4096
+        rt_settings.memory_min_version_mb = 64
+        admitted = _assign("v-fits")
+        await store._load("v-fits")
+        checks.append(("a version that fits loads and its cost is recorded",
+                       admitted.state == "ready" and admitted.memory_mb >= 1
+                       and store.ledger.get("sha-v-fits") == admitted.memory_mb
+                       and admitted.report()["needs_mb"] == 64,
+                       {"state": admitted.state, "memory_mb": admitted.memory_mb,
+                        "needs_mb": admitted.needs_mb, "detail": admitted.detail}))
+        rt_settings.memory_budget_mb = 0
+
         await slow.drain()
         await entry.batcher.drain()
         await static.batcher.drain()
+        await admitted.batcher.drain()
 
     failed = 0
     for name, ok, detail in checks:

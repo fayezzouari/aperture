@@ -23,6 +23,7 @@ from aperture_core.configspec import Backend as BackendKind
 from aperture_core.configspec import ModelConfig
 from runtime.backends.base import Backend, BackendLoadError
 from runtime.batcher import Batcher
+from runtime.memory import Ledger, budget_mb, estimate_mb, rss_mb
 from runtime.settings import settings
 
 log = logging.getLogger("runtime.store")
@@ -39,7 +40,8 @@ class Loaded:
     state: str = "pending"     # pending | loading | warming | ready | failed | draining
     detail: str = ""
     loaded_at: datetime | None = None
-    memory_mb: int = 0
+    memory_mb: int = 0       # measured resident cost once loaded
+    needs_mb: int = 0        # what admission expected it to cost
     requests: int = 0
     batches: int = 0
     desired_state: str = "ready"
@@ -54,6 +56,7 @@ class Loaded:
             "in_flight": self.batcher.in_flight if self.batcher else 0,
             "loaded_at": self.loaded_at.isoformat() if self.loaded_at else None,
             "memory_mb": self.memory_mb,
+            "needs_mb": self.needs_mb,
             "requests": self.requests,
             "batches": self.batches,
         }
@@ -65,7 +68,12 @@ class ModelStore:
         self.models: dict[str, Loaded] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._semaphore = asyncio.Semaphore(max(1, settings.infer_workers))
+        # One load at a time: admission compares the estimate with what is free
+        # right now, and a second load running alongside would make both the
+        # check and the measured cost meaningless.
+        self._admission = asyncio.Lock()
         os.makedirs(settings.cache_dir, exist_ok=True)
+        self.ledger = Ledger(os.path.join(settings.cache_dir, "memory-costs.json"))
 
     # ------------------------------------------------------------------ access
 
@@ -77,6 +85,11 @@ class ModelStore:
 
     def report(self) -> list[dict]:
         return [m.report() for m in self.models.values()]
+
+    def memory(self) -> dict:
+        """What the heartbeat tells the deployer about room for more versions."""
+        budget, used = budget_mb(), rss_mb()
+        return {"budget_mb": budget, "used_mb": used, "available_mb": max(0, budget - used)}
 
     # ------------------------------------------------------- desired-state sync
 
@@ -121,31 +134,58 @@ class ModelStore:
             started = time.perf_counter()
             try:
                 path = await self._fetch_weights(assignment)
-                backend = await asyncio.to_thread(self._build_backend, entry.config, path,
-                                                  assignment)
-                entry.backend = backend
-                entry.batcher = Batcher(
-                    version_id=version_id, backend=backend,
-                    semaphore=self._semaphore, **_batching(assignment)
-                )
-                await entry.batcher.start()
-
-                entry.state = "warming"
-                await self._warmup(entry)
-
-                entry.state = "ready"
-                entry.loaded_at = datetime.now(UTC)
-                entry.memory_mb = int(os.path.getsize(path) / 1e6)
-                log.info("version ready", extra={
-                    "version_id": version_id, "model": entry.model_slug,
-                    "version": entry.version, "provider": backend.io.provider,
-                    "load_seconds": round(time.perf_counter() - started, 2),
-                })
+                async with self._admission:
+                    if self.models.get(version_id) is not entry:
+                        return  # unassigned while the weights downloaded
+                    await self._admit_and_load(entry, path, started)
             except Exception as exc:
                 entry.state = "failed"
                 entry.detail = str(exc)[:2000]
                 log.error("version failed to load", extra={"version_id": version_id,
                                                            "error": entry.detail})
+
+    async def _admit_and_load(self, entry: Loaded, path: str, started: float) -> None:
+        assignment = entry.assignment
+        key = assignment.get("weights_sha256") or path
+        weights_bytes = os.path.getsize(path)
+        need = estimate_mb(weights_bytes, self.ledger.get(key))
+        budget, before = budget_mb(), rss_mb()
+        free = max(0, budget - before)
+        entry.needs_mb = need
+        if need > free:
+            # Refusing is recoverable: the deployer moves the assignment to a
+            # runtime with room. Loading anyway gets the whole process killed.
+            entry.state = "failed"
+            entry.detail = (f"insufficient memory: needs ~{need} MB, {free} MB free "
+                            f"(budget {budget} MB)")
+            log.warning("refused a version that does not fit in memory", extra={
+                "version_id": entry.version_id, "model": entry.model_slug,
+                "needs_mb": need, "free_mb": free, "budget_mb": budget,
+            })
+            return
+
+        backend = await asyncio.to_thread(self._build_backend, entry.config, path, assignment)
+        entry.backend = backend
+        entry.batcher = Batcher(
+            version_id=entry.version_id, backend=backend,
+            semaphore=self._semaphore, **_batching(assignment)
+        )
+        await entry.batcher.start()
+
+        entry.state = "warming"
+        await self._warmup(entry)
+
+        entry.state = "ready"
+        entry.loaded_at = datetime.now(UTC)
+        # what holding it actually cost, never less than the weights themselves
+        entry.memory_mb = max(rss_mb() - before, int(weights_bytes / (1024 * 1024)), 1)
+        self.ledger.record(key, entry.memory_mb)
+        log.info("version ready", extra={
+            "version_id": entry.version_id, "model": entry.model_slug,
+            "version": entry.version, "provider": backend.io.provider,
+            "load_seconds": round(time.perf_counter() - started, 2),
+            "memory_mb": entry.memory_mb, "estimated_mb": need,
+        })
 
     async def _fetch_weights(self, assignment: dict) -> str:
         key = assignment.get("weights_key")

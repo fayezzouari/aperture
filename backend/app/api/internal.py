@@ -35,7 +35,8 @@ class LoadedVersion(BaseModel):
     queue_depth: int = 0
     in_flight: int = 0
     loaded_at: datetime | None = None
-    memory_mb: int = 0
+    memory_mb: int = 0      # measured resident cost once ready
+    needs_mb: int = 0       # what the runtime expected it to cost (set when it refuses)
     requests: int = 0
     batches: int = 0
 

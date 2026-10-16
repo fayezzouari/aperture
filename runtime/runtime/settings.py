@@ -37,6 +37,15 @@ class RuntimeSettings(BaseSettings):
     default_max_wait_ms: int = 8
     default_max_queue_depth: int = 64
     infer_workers: int = 2         # concurrent blocking inference calls per process
+    # Memory admission: a version that would push the process past the budget
+    # is refused rather than loaded. 0 = a fraction of the cgroup limit (or of
+    # host RAM when the container has no limit).
+    memory_budget_mb: int = 0
+    memory_budget_fraction: float = 0.8
+    # Until a version has been measured, its cost is estimated as this multiple
+    # of its weights file, and never below the floor.
+    memory_estimate_factor: float = 3.0
+    memory_min_version_mb: int = 64
     log_level: str = "INFO"
     build: str = "aperture-runtime/0.1.0"
 

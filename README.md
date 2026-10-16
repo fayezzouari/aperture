@@ -541,6 +541,19 @@ the gateway returns `503 queue_full` rather than letting a queue build — a
 pileup turns a capacity problem into a timeout storm. Optional autoscaling moves
 replicas between `min` and `max` to hold a target queue depth.
 
+Memory is budgeted rather than hoped for. Each runtime container has a hard
+limit (`RUNTIME_MEM_LIMIT`, 3 GB by default) and admits a version only if its
+expected footprint fits in 80% of it (`AP_RUNTIME_MEMORY_BUDGET_MB` to set the
+number directly). The first estimate is three times the weights file; once a
+replica has loaded the version, what it actually cost is measured, remembered
+across restarts and used from then on. Placement reads each runtime's free
+memory from its heartbeat, so a version that fits nowhere stays `pending` with
+"waiting for a runtime with enough memory (needs ~X MB)" instead of being
+loaded and taking the runtime down with it. A refusal moves the replica
+elsewhere and never marks the version itself as failed. To serve more, add
+runtimes or raise the limit, keeping `RUNTIME_REPLICAS × RUNTIME_MEM_LIMIT`
+inside the host's RAM (on Docker Desktop, the VM's memory setting).
+
 On a GPU host:
 
 ```bash
