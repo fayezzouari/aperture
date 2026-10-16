@@ -17,7 +17,7 @@ behaviour against real containers.
 |---|---|---|---|---|
 | R1.1 Resumable/chunked upload, UI + API | M | ✅ | `backend/app/api/v1/versions.py` (`/uploads`, `/parts/{n}`, `/complete`), `frontend/src/lib/api.ts::uploadWeights` | S3 multipart underneath. `GET /v1/uploads/{id}` tells a resumed client which parts landed. e2e: *"a resumed client can ask which parts landed"* |
 | R1.2 PyTorch / TorchScript / ONNX / TensorRT / safetensors | M | ✅ | `core/aperture_core/artifacts.py`, `runtime/runtime/store.py::_build_backend` | Every upload is **inspected**, not trusted by extension: ONNX / TorchScript / TensorRT are servable; an Ultralytics checkpoint is convertible in one click; a `state_dict` or safetensors is refused with the architecture recognised from its layer names, the preset to use once it is ONNX, and the export command. Verified against real `yolo11l-seg.pt`, `rf-detr-seg-preview.pt` and a 111 MB Ultralytics ONNX export in `core/artifact_test.py`. |
-| R1.3 Required metadata per version | M | ✅ | `backend/app/models.py::ModelVersion`, `schemas.py::VersionCreate` | Task and owner on the model; input shape/dtype, class list, framework on the version config. |
+| R1.3 Required metadata per version | M | ✅ | `backend/app/models/model_version.py::ModelVersion`, `schemas/version.py::VersionCreate` | Task and owner on the model; input shape/dtype, class list, framework on the version config. |
 | R1.4 Pre/post-processing config lives with the version | M | ✅ | `core/aperture_core/configspec.py`, stored in `model_versions.config` | Never global. e2e: *"a published version's config is immutable"* |
 | R1.5 Presets for known families | M | ✅ | `core/aperture_core/presets.py`, `GET /v1/meta/presets` | YOLOv5, YOLOv8/9/10, YOLO11, RF-DETR, YOLO-seg, YOLO-pose, ResNet-ImageNet, EfficientNet, SAM, CLIP, PaddleOCR-rec, plus Custom. |
 | R1.6 New versions inherit the previous config, editable before publish | M | ✅ | `versions.py::create_version` (`inherit_from_version`), `frontend/.../ConfigTab.tsx` | e2e: *"version 2 inherits version 1's config"*, *"edit the inherited config before publishing"* |
@@ -33,7 +33,7 @@ behaviour against real containers.
 | R2.1 Immutable auto-incrementing versions | M | ✅ | `versions.py::create_version`, `patch_version` | Weights are write-once; editing a published config returns `version_immutable`. e2e asserts both. |
 | R2.2 Movable tags; clients call the tag | M | ✅ | `backend/app/api/v1/tags.py`, `services/resolver.py` | e2e: *"predict through the tag"* |
 | R2.3 Retagging atomic and instant; rollback = repoint | M | ✅ | `tags.py::set_tag`, `deployments.py::rollback`, `cache.py::invalidate_tag` | One row update plus an explicit cache purge. e2e: *"the retag takes effect without a redeploy"*, *"traffic is back on v1 after the rollback"* |
-| R2.4 Version metadata: run id, dataset, metrics, commit, changelog | M | ✅ | `models.py::ModelVersion` | Shown in version history and in the compare view. |
+| R2.4 Version metadata: run id, dataset, metrics, commit, changelog | M | ✅ | `models/model_version.py::ModelVersion` | Shown in version history and in the compare view. |
 | R2.5 Compare two versions side by side | S | ✅ | `GET /v1/models/{ref}/version-compare`, `frontend/.../CompareTab.tsx` | Metadata, metric deltas, measured latency and traffic, and a field-level config diff. |
 | R2.6 Deprecate/archive, retention for unused weights | S | ✅ | `versions.py::deprecate_version`, `archive_version` | Archiving can reclaim the blob; a tagged version cannot be deprecated out from under its callers. |
 | R2.7 Progressive rollout: canary, A/B, shadow | S | ◑ | `services/gateway.py::choose_targets` | Canary takes a weighted slice of *tag* traffic; shadow mirrors and discards the answer; A/B is two canaries with the metrics split by version. Only applies to tag callers — an explicit version number is a promise. |
@@ -56,7 +56,7 @@ behaviour against real containers.
 
 | ID | Pri | Status | Where | Notes |
 |---|---|---|---|---|
-| R4.1 Configurable replicas with explicit device assignment | M | ✅ | `models.py::Deployment`, `services/deployer.py::_device_fits` | `auto`, `cpu`, `cuda`, `cuda:N`. |
+| R4.1 Configurable replicas with explicit device assignment | M | ✅ | `models/deployment.py::Deployment`, `services/deployer.py::_device_fits` | `auto`, `cpu`, `cuda`, `cuda:N`. |
 | R4.2 Dynamic batching (max batch + max wait) | M | ✅ | `runtime/runtime/batcher.py` | Merges requests from different callers. runtime suite: *"requests batched together across callers"* (5 merged into one pass). |
 | R4.3 Queue with max depth, timeout, backpressure | M | ✅ | `batcher.py::QueueFull`, `errors.py` | Returns `503 queue_full` instead of queueing. runtime suite asserts no timeout pileup. |
 | R4.4 Warm-up on deploy, weights stay resident | M | ✅ | `runtime/store.py::_warmup` | A version is only routable after warm-up passes. |
@@ -98,7 +98,7 @@ behaviour against real containers.
 |---|---|---|---|---|
 | R7.1 Revocable API keys, scoped to models | M | ✅ | `security.py`, `api/v1/keys.py` | Hashed at rest, shown once. e2e: *"the key cannot reach a model outside its scope"*, *"a revoked key stops working immediately"* |
 | R7.2 SSO/OIDC or LDAP with viewer/developer/admin | M | ✅ | `api/v1/auth.py`, `security.py::require_role` | Group→role mapping for OIDC; local password login for bootstrap. |
-| R7.3 Projects isolating models, keys and logs | M | ✅ | `models.py::Project`, `deps.py::resolve_project` | Every query is project-scoped. |
+| R7.3 Projects isolating models, keys and logs | M | ✅ | `models/project.py::Project`, `deps.py::resolve_project` | Every query is project-scoped. |
 | R7.4 Audit log of every mutating action | M | ✅ | `backend/app/audit.py` | Closed action vocabulary; e2e asserts 8 specific actions are recorded. |
 | R7.5 TLS in transit; encryption at rest | M | ◑ | `storage.py::_sse_args`, `AP_S3_SSE` | TLS terminates at your ingress (the compose network is plain HTTP). SSE-S3 is opt-in because MinIO refuses it without a KMS — see README *Encryption at rest*. |
 | R7.6 Retention policy and hard delete for captured images | M | ✅ | `tasks.py::retention_sweep`, `purge_captures` | Per-project retention, hourly sweep, on-demand purge, flagged records preserved. |
