@@ -17,9 +17,9 @@ from app.cache import client as redis_client
 from app.db import get_session
 from app.deps import Principal, current_user
 from app.errors import ApiError
-from app.models import Membership, Project, User
+from app.models import User
 from app.schemas import AuthMethods, LoginRequest, TokenResponse, UserOut
-from app.security import hash_password, issue_token, load_memberships, verify_password
+from app.security import hash_password, issue_token, verify_password
 from app.settings import settings
 
 log = logging.getLogger("aperture.auth")
@@ -42,10 +42,9 @@ async def methods() -> AuthMethods:
 async def _finish_login(session: AsyncSession, user: User, request: Request,
                         response: Response) -> TokenResponse:
     user.last_login_at = datetime.now(UTC)
-    roles = await load_memberships(session, user.id)
-    token, ttl = issue_token(user, roles)
+    token, ttl = issue_token(user)
     await audit.record(
-        session, action="user.login", project_id=None, actor_id=user.id, actor_label=user.email,
+        session, action="user.login", actor_id=user.id, actor_label=user.email,
         target_type="user", target_id=user.id, target_label=user.email,
         payload={"provider": user.provider}, client_ip=_ip(request),
     )
@@ -56,14 +55,14 @@ async def _finish_login(session: AsyncSession, user: User, request: Request,
     )
     return TokenResponse(
         access_token=token, expires_in=ttl,
-        user=UserOut(**{**_user_dict(user), "roles": roles}),
+        user=UserOut(**_user_dict(user)),
     )
 
 
 def _user_dict(user: User) -> dict:
     return {
         "id": user.id, "email": user.email, "name": user.name, "provider": user.provider,
-        "is_superadmin": user.is_superadmin, "is_active": user.is_active,
+        "role": user.role, "is_active": user.is_active,
         "last_login_at": user.last_login_at,
     }
 
@@ -98,8 +97,8 @@ async def login(body: LoginRequest, request: Request, response: Response,
 
 
 async def _record_failure(session: AsyncSession, email: str, request: Request) -> None:
-    await audit.record(session, action="user.login_failed", project_id=None,
-                       actor_label=email, target_type="user", target_label=email,
+    await audit.record(session, action="user.login_failed", actor_label=email, target_type="user",
+                       target_label=email,
                        client_ip=_ip(request), commit=True)
 
 
@@ -133,25 +132,13 @@ async def _ldap_login(session: AsyncSession, email: str, password: str) -> User:
         await session.execute(sa.select(User).where(sa.func.lower(User.email) == email))
     ).scalar_one_or_none()
     if user is None:
+        # a newly federated user starts as a developer unless the directory says admin
+        is_admin = bool(settings.ldap_admin_group and settings.ldap_admin_group in groups)
         user = User(email=email, name=str(entry.cn) if "cn" in entry else email, provider="ldap",
-                    is_superadmin=bool(settings.ldap_admin_group and
-                                       settings.ldap_admin_group in groups))
+                    role="admin" if is_admin else "developer")
         session.add(user)
         await session.flush()
-        await _grant_default_membership(session, user)
     return user
-
-
-async def _grant_default_membership(session: AsyncSession, user: User, role: str = "developer"
-                                    ) -> None:
-    """A newly federated user lands in every existing project as a developer.
-
-    Small teams want this; larger installs turn it off by pre-seeding memberships
-    and setting the role mapping in the identity provider instead.
-    """
-    projects = (await session.execute(sa.select(Project.id))).scalars().all()
-    for project_id in projects:
-        session.add(Membership(user_id=user.id, project_id=project_id, role=role))
 
 
 # ------------------------------------------------------------------------ OIDC
@@ -228,15 +215,12 @@ async def oidc_callback(code: str, state: str, request: Request, response: Respo
         await session.execute(sa.select(User).where(sa.func.lower(User.email) == email))
     ).scalar_one_or_none()
     if user is None:
-        user = User(email=email, name=info.get("name") or email, provider="oidc",
-                    is_superadmin=is_admin)
+        role = "admin" if is_admin else "developer" if dev_groups & set(groups) else "viewer"
+        user = User(email=email, name=info.get("name") or email, provider="oidc", role=role)
         session.add(user)
         await session.flush()
-        await _grant_default_membership(
-            session, user, "developer" if (dev_groups & set(groups)) or is_admin else "viewer"
-        )
-    else:
-        user.is_superadmin = user.is_superadmin or is_admin
+    elif is_admin:
+        user.role = "admin"  # the identity provider can promote, never demote
     return await _finish_login(session, user, request, response)
 
 
@@ -249,7 +233,7 @@ async def me(principal: Principal = Depends(current_user),
     user = await session.get(User, principal.id)
     if user is None:
         raise ApiError("unauthenticated", "this account no longer exists")
-    return UserOut(**{**_user_dict(user), "roles": principal.roles})
+    return UserOut(**_user_dict(user))
 
 
 @router.post("/logout")
