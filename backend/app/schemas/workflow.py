@@ -30,7 +30,6 @@ class WorkflowPatch(BaseModel):
 
 class WorkflowOut(ORMModel):
     id: str
-    project_id: str
     slug: str
     name: str
     description: str
