@@ -22,6 +22,7 @@ import asyncio
 import logging
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit
@@ -33,6 +34,15 @@ from app.services.deployer import reconcile
 log = logging.getLogger(__name__)
 
 POLL_SECONDS = 0.75
+
+
+async def _primary(session: AsyncSession, version_id: str) -> Deployment | None:
+    return (
+        await session.execute(
+            sa.select(Deployment).where(Deployment.version_id == version_id,
+                                        Deployment.mode == "primary")
+        )
+    ).scalar_one_or_none()
 
 
 async def ensure_serving(session: AsyncSession, model: Model,
@@ -60,20 +70,24 @@ async def ensure_serving(session: AsyncSession, model: Model,
             details={"version": version.version},
         )
 
-    deployment = (
-        await session.execute(
-            sa.select(Deployment).where(Deployment.version_id == version.id,
-                                        Deployment.mode == "primary")
-        )
-    ).scalar_one_or_none()
-
+    deployment = await _primary(session, version.id)
+    created = False
     if deployment is None:
-        deployment = Deployment(model_id=model.id,
-                                version_id=version.id, mode="primary",
-                                status="pending", replicas=1)
-        session.add(deployment)
-        created = True
-    else:
+        # Two playground clicks can both find no deployment and both insert one;
+        # uq_deploy_version_mode lets exactly one through. The loser adopts the
+        # winner's row instead of failing the predict.
+        try:
+            async with session.begin_nested():
+                deployment = Deployment(model_id=model.id,
+                                        version_id=version.id, mode="primary",
+                                        status="pending", replicas=1)
+                session.add(deployment)
+            created = True
+        except IntegrityError:
+            deployment = await _primary(session, version.id)
+            if deployment is None:
+                raise
+    if not created:
         created = deployment.status == "stopped"
         if deployment.status == "stopped":
             deployment.status = "pending"
@@ -82,7 +96,6 @@ async def ensure_serving(session: AsyncSession, model: Model,
             deployment.replicas = 1
 
     if created:
-        await session.flush()
         await audit.record(
             session, action="deployment.create", actor_id=principal.id, actor_label=principal.label,
             target_type="deployment", target_id=deployment.id,
