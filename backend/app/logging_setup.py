@@ -9,7 +9,6 @@ from contextvars import ContextVar
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 trace_id_var: ContextVar[str | None] = ContextVar("trace_id", default=None)
-project_id_var: ContextVar[str | None] = ContextVar("project_id", default=None)
 
 _RESERVED = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {
     "asctime", "message", "taskName"
@@ -28,8 +27,6 @@ class JsonFormatter(logging.Formatter):
             payload["request_id"] = rid
         if tid := trace_id_var.get():
             payload["trace_id"] = tid
-        if pid := project_id_var.get():
-            payload["project_id"] = pid
         for key, value in record.__dict__.items():
             if key not in _RESERVED and not key.startswith("_"):
                 payload[key] = value
