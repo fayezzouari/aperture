@@ -26,14 +26,11 @@ SMALL_PNG = png_bytes(64, 48)
 SMALL_PNG_B64 = base64.b64encode(SMALL_PNG).decode()
 BIG_JPEG = jpeg_bytes(3000, 2000)
 
-PROJECTS = [
-    {"id": "p1", "slug": "default", "name": "Default", "description": "", "created_at": NOW,
-     "capture_sample_rate": None, "capture_retention_days": None, "model_count": 2,
-     "role": "developer"},
-]
+ME = {"id": "u1", "email": "dev@aperture.test", "name": "Dev", "provider": "local",
+      "role": "developer", "is_active": True, "last_login_at": NOW}
 
 MODEL = {
-    "id": "m1", "project_id": "p1", "slug": "part-detection", "name": "Part detection",
+    "id": "m1", "slug": "part-detection", "name": "Part detection",
     "task": "detection", "owner": "vision", "framework": "onnx", "description": "Finds parts",
     "labels": ["prod"], "created_at": NOW, "updated_at": NOW, "archived_at": None,
     "version_count": 3, "latest_version": 3,
@@ -106,7 +103,7 @@ PREDICT_RESPONSE = {
 }
 
 OVERVIEW = {
-    "project": PROJECTS[0], "models": 2, "versions": 5, "deployments": 2,
+    "models": 2, "versions": 5, "deployments": 2,
     "replicas_ready": 2, "replicas_desired": 2,
     "runtimes": [{"id": "r1", "url": "http://runtime:9000", "hostname": "rt-1",
                   "device": "cpu", "gpu_name": "", "total_memory_mb": 0, "free_memory_mb": 0,
