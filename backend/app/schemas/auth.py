@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from app.schemas.common import ORMModel
+from app.schemas.common import ORMModel, Role
 
 
 class LoginRequest(BaseModel):
@@ -26,10 +26,9 @@ class UserOut(ORMModel):
     email: str
     name: str
     provider: str
-    is_superadmin: bool
+    role: Role = "viewer"
     is_active: bool
     last_login_at: datetime | None = None
-    roles: dict[str, str] = Field(default_factory=dict)
 
 
 class AuthMethods(BaseModel):
