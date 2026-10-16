@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useInstance, useProjects, useRole } from "../lib/hooks";
+import { can, useInstance, useRole } from "../lib/hooks";
 import { sanitizeSlug, slugProblem, slugify } from "../lib/slug";
 import { TagRail } from "../components/bits";
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Panel, Spinner, Status } from "../components/ui";
@@ -33,9 +33,7 @@ const TASKS = ["detection", "segmentation", "classification", "keypoints", "ocr"
 
 export default function Models() {
   const queryClient = useQueryClient();
-  const projects = useProjects();
-  const projectId = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project"))?.id;
-  const role = useRole(projectId);
+  const role = useRole();
 
   const [search, setSearch] = useState("");
   const [task, setTask] = useState("");
@@ -53,7 +51,7 @@ export default function Models() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight">Models</h1>
-          <p className="mt-0.5 text-[12.5px] text-ink-3">Every model in this project, with what is live and how it is behaving.</p>
+          <p className="mt-0.5 text-[12.5px] text-ink-3">Every model, with what is live and how it is behaving.</p>
         </div>
         {can(role, "developer") ? (
           <div className="flex items-center gap-2">
@@ -107,7 +105,7 @@ export default function Models() {
             title={search || task ? "No model matches those filters" : "No models yet"}
             body={
               search || task
-                ? "Clear the filters to see everything in the project."
+                ? "Clear the filters to see every model."
                 : "A model is a named slot with its own version history. Create one, then upload weights as version 1."
             }
             action={can(role, "developer") ? <Button variant="primary" onClick={() => setCreating(true)}>New model</Button> : undefined}

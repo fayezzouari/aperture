@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, session } from "../lib/api";
+import { api } from "../lib/api";
 import { fmt } from "../lib/format";
 import { Badge, Button, CodeBlock, EmptyState, ErrorNote, Field, Modal, Panel, PanelHeader, Spinner, useToast } from "../components/ui";
 
@@ -23,16 +23,15 @@ const EXPIRY_OPTIONS: { label: string; days: number | null }[] = [
 
 function agentConfig(token: string) {
   const url = window.location.origin;
-  const project = session.project ? ` -e APERTURE_PROJECT=${session.project}` : "";
   return {
-    claudeCode: `claude mcp add aperture -e APERTURE_URL=${url} -e APERTURE_TOKEN=${token}${project} -- uvx --from /path/to/aperture/mcp aperture-mcp`,
+    claudeCode: `claude mcp add aperture -e APERTURE_URL=${url} -e APERTURE_TOKEN=${token} -- uvx --from /path/to/aperture/mcp aperture-mcp`,
     json: JSON.stringify(
       {
         mcpServers: {
           aperture: {
             command: "uvx",
             args: ["--from", "/path/to/aperture/mcp", "aperture-mcp"],
-            env: { APERTURE_URL: url, APERTURE_TOKEN: token, ...(session.project ? { APERTURE_PROJECT: session.project } : {}) },
+            env: { APERTURE_URL: url, APERTURE_TOKEN: token },
           },
         },
       },
@@ -71,7 +70,7 @@ export default function Tokens() {
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight">Personal access tokens</h1>
           <p className="mt-0.5 text-[12.5px] text-ink-3">
-            A token is you: it carries your project roles and outlives a browser session. Use one per agent or script so each can be revoked on its own.
+            A token is you: it carries your role and outlives a browser session. Use one per agent or script so each can be revoked on its own.
           </p>
         </div>
         <Button variant="primary" onClick={() => setCreating(true)}>

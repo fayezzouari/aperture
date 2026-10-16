@@ -320,7 +320,7 @@ function DetailDrawer({ id, onClose }: { id: string | null; onClose: () => void 
             </div>
           ) : (
             <p className="text-[12px] leading-relaxed text-ink-3">
-              This request was not sampled for capture, so there is no image. Raise the capture rate in project settings if you need more of them.
+              This request was not sampled for capture, so there is no image. Raise the capture rate in Settings if you need more of them.
             </p>
           )}
 

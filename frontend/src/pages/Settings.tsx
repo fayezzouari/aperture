@@ -2,41 +2,35 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useInstance, useMe, useProjects, useRole } from "../lib/hooks";
+import { can, useInstance, useMe, useRole } from "../lib/hooks";
 import { Badge, Button, ErrorNote, Field, KeyValue, Panel, PanelHeader, Spinner, Tabs, useToast } from "../components/ui";
 
-type Member = { user_id: string; email: string; name: string; role: string; provider: string };
+type User = { id: string; email: string; name: string; role: string; provider: string; is_active: boolean; last_login_at: string | null };
+type CaptureSettings = {
+  capture_sample_rate: number | null;
+  capture_retention_days: number | null;
+  effective_sample_rate: number;
+  effective_retention_days: number;
+};
 
 export default function Settings() {
-  const [tab, setTab] = useState("project");
-  const projects = useProjects();
+  const [tab, setTab] = useState("users");
   const me = useMe();
   const instance = useInstance();
-  const active = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project")) ?? projects.data?.[0];
-  const role = useRole(active?.id);
-
-  if (!active) {
-    return (
-      <div className="flex h-40 items-center justify-center text-ink-3">
-        <Spinner size={18} />
-      </div>
-    );
-  }
+  const role = useRole();
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-[19px] font-semibold tracking-tight">Settings</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">
-          Project, members, capture and retention for {active.name}. Your role here is{" "}
-          <span className="text-ink-2">{role}</span>.
+          Users, capture and retention for this instance. Your role is <span className="text-ink-2">{role}</span>.
         </p>
       </div>
 
       <Tabs
         tabs={[
-          { key: "project", label: "Project" },
-          { key: "members", label: "Members" },
+          { key: "users", label: "Users" },
           { key: "privacy", label: "Capture & retention" },
           { key: "instance", label: "Instance" },
         ]}
@@ -44,84 +38,67 @@ export default function Settings() {
         onChange={setTab}
       />
 
-      {tab === "project" ? <ProjectTab project={active} role={role} /> : null}
-      {tab === "members" ? <MembersTab slug={active.slug} role={role} /> : null}
-      {tab === "privacy" ? <PrivacyTab project={active} role={role} /> : null}
-      {tab === "instance" ? <InstanceTab instance={instance.data} superadmin={Boolean(me.data?.is_superadmin)} /> : null}
+      {tab === "users" ? <UsersTab role={role} myId={me.data?.id} /> : null}
+      {tab === "privacy" ? <PrivacyTab role={role} /> : null}
+      {tab === "instance" ? <InstanceTab instance={instance.data} /> : null}
     </div>
   );
 }
 
-function ProjectTab({ project, role }: { project: { slug: string; name: string; description: string }; role: string }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [form, setForm] = useState({ name: project.name, description: project.description });
-
-  const save = useMutation({
-    mutationFn: () => api(`/v1/projects/${project.slug}`, { method: "PATCH", body: form }),
-    onSuccess: () => {
-      toast("Project updated.");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-    onError: (error) => toast((error as Error).message, "bad"),
-  });
-
-  return (
-    <Panel>
-      <PanelHeader title="Project" subtitle="Projects isolate models, keys and logs between teams. The slug is fixed once created." />
-      <div className="max-w-lg space-y-3.5 px-4 py-4">
-        <Field label="Slug">
-          <input className="input mono" value={project.slug} disabled />
-        </Field>
-        <Field label="Name">
-          <input className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} disabled={!can(role, "admin")} />
-        </Field>
-        <Field label="Description">
-          <textarea className="textarea" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} disabled={!can(role, "admin")} />
-        </Field>
-        {can(role, "admin") ? (
-          <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
-            Save
-          </Button>
-        ) : null}
-        <ErrorNote error={save.error} />
-      </div>
-    </Panel>
-  );
-}
-
-function MembersTab({ slug, role }: { slug: string; role: string }) {
+function UsersTab({ role, myId }: { role: string; myId?: string }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [invite, setInvite] = useState({ email: "", role: "viewer" });
+  const admin = can(role, "admin");
 
-  const members = useQuery<Member[]>({ queryKey: ["members", slug], queryFn: () => api(`/v1/projects/${slug}/members`) });
+  const users = useQuery<User[]>({ queryKey: ["users"], queryFn: () => api("/v1/users"), enabled: admin });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["users"] });
 
-  const upsert = useMutation({
-    mutationFn: (body: { email: string; role: string }) => api(`/v1/projects/${slug}/members`, { method: "PUT", body }),
+  const inviteUser = useMutation({
+    mutationFn: (body: { email: string; role: string }) => api("/v1/users", { method: "PUT", body }),
     onSuccess: () => {
-      toast("Membership saved.");
+      toast("User saved.");
       setInvite({ email: "", role: "viewer" });
-      queryClient.invalidateQueries({ queryKey: ["members", slug] });
+      refresh();
     },
     onError: (error) => toast((error as Error).message, "bad"),
   });
 
-  const remove = useMutation({
-    mutationFn: (userId: string) => api(`/v1/projects/${slug}/members/${userId}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["members", slug] }),
+  const update = useMutation({
+    mutationFn: ({ id, ...body }: { id: string; role?: string; is_active?: boolean }) => api(`/v1/users/${id}`, { method: "PATCH", body }),
+    onSuccess: refresh,
+    onError: (error) => toast((error as Error).message, "bad"),
   });
+
+  const deactivate = useMutation({
+    mutationFn: (id: string) => api(`/v1/users/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      toast("User deactivated.");
+      refresh();
+    },
+    onError: (error) => toast((error as Error).message, "bad"),
+  });
+
+  if (!admin) {
+    return (
+      <Panel>
+        <PanelHeader title="Users" subtitle="viewer reads · developer uploads and deploys · admin manages keys, users and deletion." />
+        <p className="px-4 py-4 text-[12.5px] text-ink-3">Only an admin can see and change who has access. Your role is {role}.</p>
+      </Panel>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <Panel>
-        <PanelHeader
-          title="Members"
-          subtitle="viewer reads · developer uploads and deploys · admin manages keys, members and deletion."
-        />
-        {members.isLoading ? (
+        <PanelHeader title="Users" subtitle="viewer reads · developer uploads and deploys · admin manages keys, users and deletion." />
+        {users.isLoading ? (
           <div className="flex h-24 items-center justify-center text-ink-3">
             <Spinner size={18} />
+          </div>
+        ) : users.isError ? (
+          <div className="px-4 py-4">
+            <ErrorNote error={users.error} />
           </div>
         ) : (
           <div className="scroll-x">
@@ -131,84 +108,103 @@ function MembersTab({ slug, role }: { slug: string; role: string }) {
                   <th>Email</th>
                   <th>Provider</th>
                   <th>Role</th>
+                  <th>Last sign-in</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {(members.data ?? []).map((member) => (
-                  <tr key={member.user_id}>
-                    <td className="text-[12.5px] text-ink">{member.email}</td>
-                    <td>
-                      <Badge>{member.provider}</Badge>
-                    </td>
-                    <td>
-                      {can(role, "admin") ? (
+                {(users.data ?? []).map((user) => {
+                  const self = user.id === myId;
+                  return (
+                    <tr key={user.id} className={user.is_active ? "" : "opacity-50"}>
+                      <td className="text-[12.5px] text-ink">
+                        {user.email}
+                        {self ? <span className="ml-2 text-[11px] text-ink-3">you</span> : null}
+                      </td>
+                      <td>
+                        <Badge>{user.provider}</Badge>
+                      </td>
+                      <td>
                         <select
                           className="select w-[130px]"
-                          value={member.role}
-                          onChange={(event) => upsert.mutate({ email: member.email, role: event.target.value })}
+                          value={user.role}
+                          disabled={self || !user.is_active}
+                          onChange={(event) => update.mutate({ id: user.id, role: event.target.value })}
                         >
                           <option value="viewer">viewer</option>
                           <option value="developer">developer</option>
                           <option value="admin">admin</option>
                         </select>
-                      ) : (
-                        <span className="text-[12.5px] text-ink-2">{member.role}</span>
-                      )}
-                    </td>
-                    <td className="text-right">
-                      {can(role, "admin") ? (
-                        <Button size="sm" variant="danger" onClick={() => remove.mutate(member.user_id)}>
-                          Remove
-                        </Button>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="text-[12px] text-ink-3">{user.last_login_at ? fmt.ago(user.last_login_at) : "never"}</td>
+                      <td className="text-right">
+                        {self ? null : user.is_active ? (
+                          <Button size="sm" variant="danger" loading={deactivate.isPending && deactivate.variables === user.id} onClick={() => deactivate.mutate(user.id)}>
+                            Deactivate
+                          </Button>
+                        ) : (
+                          <Button size="sm" onClick={() => update.mutate({ id: user.id, is_active: true })}>
+                            Reactivate
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Panel>
 
-      {can(role, "admin") ? (
-        <Panel>
-          <PanelHeader title="Add a member" subtitle="With SSO enabled, adding someone here pre-assigns their role before their first sign-in." />
-          <div className="flex flex-wrap items-end gap-3 px-4 py-4">
-            <Field label="Email">
-              <input className="input w-[260px]" value={invite.email} onChange={(event) => setInvite({ ...invite, email: event.target.value })} />
-            </Field>
-            <Field label="Role">
-              <select className="select w-[140px]" value={invite.role} onChange={(event) => setInvite({ ...invite, role: event.target.value })}>
-                <option value="viewer">viewer</option>
-                <option value="developer">developer</option>
-                <option value="admin">admin</option>
-              </select>
-            </Field>
-            <Button variant="primary" loading={upsert.isPending} disabled={!invite.email} onClick={() => upsert.mutate(invite)}>
-              Add
-            </Button>
-          </div>
-        </Panel>
-      ) : null}
+      <Panel>
+        <PanelHeader title="Invite a user" subtitle="With SSO or LDAP enabled, inviting someone here sets their role before their first sign-in." />
+        <div className="flex flex-wrap items-end gap-3 px-4 py-4">
+          <Field label="Email">
+            <input className="input w-[260px]" value={invite.email} onChange={(event) => setInvite({ ...invite, email: event.target.value })} />
+          </Field>
+          <Field label="Role">
+            <select className="select w-[140px]" value={invite.role} onChange={(event) => setInvite({ ...invite, role: event.target.value })}>
+              <option value="viewer">viewer</option>
+              <option value="developer">developer</option>
+              <option value="admin">admin</option>
+            </select>
+          </Field>
+          <Button variant="primary" loading={inviteUser.isPending} disabled={!invite.email} onClick={() => inviteUser.mutate(invite)}>
+            Invite
+          </Button>
+        </div>
+      </Panel>
     </div>
   );
 }
 
-function PrivacyTab({ project, role }: { project: { slug: string; capture_sample_rate: number | null; capture_retention_days: number | null }; role: string }) {
+function PrivacyTab({ role }: { role: string }) {
+  const current = useQuery<CaptureSettings>({ queryKey: ["settings"], queryFn: () => api("/v1/settings") });
+
+  if (!current.data) {
+    return (
+      <div className="flex h-24 items-center justify-center text-ink-3">
+        {current.isError ? <ErrorNote error={current.error} /> : <Spinner size={18} />}
+      </div>
+    );
+  }
+  return <PrivacyForm role={role} current={current.data} />;
+}
+
+function PrivacyForm({ role, current }: { role: string; current: CaptureSettings }) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const instance = useInstance();
   const [form, setForm] = useState({
-    capture_sample_rate: project.capture_sample_rate ?? instance.data?.capture.default_sample_rate ?? 0.05,
-    capture_retention_days: project.capture_retention_days ?? instance.data?.capture.retention_days ?? 30,
+    capture_sample_rate: current.effective_sample_rate,
+    capture_retention_days: current.effective_retention_days,
   });
 
   const save = useMutation({
-    mutationFn: () => api(`/v1/projects/${project.slug}`, { method: "PATCH", body: form }),
+    mutationFn: () => api("/v1/settings", { method: "PATCH", body: form }),
     onSuccess: () => {
       toast("Capture settings saved.");
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
     onError: (error) => toast((error as Error).message, "bad"),
   });
@@ -285,7 +281,7 @@ function PrivacyTab({ project, role }: { project: { slug: string; capture_sample
   );
 }
 
-function InstanceTab({ instance, superadmin }: { instance?: { instance_name: string; env: string; version: string; limits: Record<string, number>; capture: Record<string, number>; features: Record<string, boolean> }; superadmin: boolean }) {
+function InstanceTab({ instance }: { instance?: { instance_name: string; env: string; version: string; limits: Record<string, number>; capture: Record<string, number>; features: Record<string, boolean> } }) {
   if (!instance) {
     return (
       <div className="flex h-24 items-center justify-center text-ink-3">
@@ -346,11 +342,6 @@ function InstanceTab({ instance, superadmin }: { instance?: { instance_name: str
               value ? <Badge kind="good">enabled</Badge> : <Badge>off</Badge>,
             ])}
           />
-          {superadmin ? (
-            <p className="hint mt-3">
-              You are an instance admin, so you can create projects through <span className="mono">POST /v1/projects</span> and see every project in the switcher.
-            </p>
-          ) : null}
         </div>
       </Panel>
     </div>

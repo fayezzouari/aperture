@@ -1,7 +1,7 @@
 /**
  * One fetch wrapper for the whole app.
  *
- * It carries the session token, the active project header, and turns the API's
+ * It carries the session token and turns the API's
  * error contract into a typed exception, so every page can render a real
  * message ("tag 'production' is locked") instead of "request failed".
  */
@@ -22,7 +22,6 @@ export class ApiError extends Error {
 }
 
 const TOKEN_KEY = "aperture.token";
-const PROJECT_KEY = "aperture.project";
 
 export const session = {
   get token() {
@@ -31,13 +30,6 @@ export const session = {
   set token(value: string | null) {
     if (value) localStorage.setItem(TOKEN_KEY, value);
     else localStorage.removeItem(TOKEN_KEY);
-  },
-  get project() {
-    return localStorage.getItem(PROJECT_KEY);
-  },
-  set project(value: string | null) {
-    if (value) localStorage.setItem(PROJECT_KEY, value);
-    else localStorage.removeItem(PROJECT_KEY);
   },
 };
 
@@ -63,7 +55,6 @@ function buildUrl(path: string, query?: Options["query"]) {
 export async function api<T = unknown>(path: string, options: Options = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (session.token) headers.authorization = `Bearer ${session.token}`;
-  if (session.project) headers["x-aperture-project"] = session.project;
 
   let body: BodyInit | undefined;
   if (options.form) {

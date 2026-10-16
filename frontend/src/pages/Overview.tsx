@@ -6,7 +6,6 @@ import { Legend, MetricTile, StageBreakdown, TimeSeries, VolumeChart } from "../
 import { Badge, EmptyState, ErrorNote, Panel, PanelHeader, Spinner, Status } from "../components/ui";
 
 type Overview = {
-  project: { slug: string; name: string };
   models: number;
   versions: number;
   deployments: number;
@@ -59,9 +58,9 @@ export default function OverviewPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold tracking-tight">{data.project.name}</h1>
+          <h1 className="text-[19px] font-semibold tracking-tight">Overview</h1>
           <p className="mt-0.5 text-[12.5px] text-ink-3">
-            How this project is behaving right now. Last 24 hours, refreshed every 15 seconds.
+            How this instance is behaving right now. Last 24 hours, refreshed every 15 seconds.
           </p>
         </div>
       </div>

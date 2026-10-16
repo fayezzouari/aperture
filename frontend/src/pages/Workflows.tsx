@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useProjects, useRole } from "../lib/hooks";
+import { can, useRole } from "../lib/hooks";
 import { sanitizeSlug, slugProblem, slugify } from "../lib/slug";
 import { Badge, Button, CodeBlock, EmptyState, ErrorNote, Field, Modal, Panel, PanelHeader, Spinner } from "../components/ui";
 
@@ -24,9 +24,7 @@ type Workflow = {
 
 export default function Workflows() {
   const queryClient = useQueryClient();
-  const projects = useProjects();
-  const projectId = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project"))?.id;
-  const role = useRole(projectId);
+  const role = useRole();
   const [creating, setCreating] = useState(false);
 
   const workflows = useQuery<Workflow[]>({ queryKey: ["workflows"], queryFn: () => api("/v1/workflows") });
