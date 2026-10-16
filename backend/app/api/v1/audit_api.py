@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import ACTIONS
 from app.db import get_session
-from app.deps import Page, Principal, current_user, pagination, project_dep
-from app.models import AuditLog, Project
+from app.deps import Page, Principal, current_user, pagination
+from app.models import AuditLog
 from app.schemas import AuditOut
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -29,14 +29,12 @@ async def list_audit(
     target_type: str | None = None,
     since_hours: int = Query(24 * 30, ge=1, le=24 * 400),
     page: Page = Depends(pagination),
-    project: Project = Depends(project_dep),
     principal: Principal = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[AuditOut]:
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     since = datetime.now(UTC) - timedelta(hours=since_hours)
-    stmt = sa.select(AuditLog).where(AuditLog.project_id == project.id,
-                                     AuditLog.created_at >= since)
+    stmt = sa.select(AuditLog).where(AuditLog.created_at >= since)
     if action:
         stmt = stmt.where(AuditLog.action == action)
     if actor:
