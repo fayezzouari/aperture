@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit, storage
 from app.db import get_session
-from app.deps import Page, Principal, current_user, get_model_or_404, pagination, project_dep
+from app.deps import Page, Principal, current_user, get_model_or_404, pagination
 from app.errors import ApiError
-from app.models import Assignment, Deployment, Model, ModelVersion, Project, Tag
+from app.models import Assignment, Deployment, Model, ModelVersion, Tag
 from app.schemas import ModelIn, ModelOut, ModelPatch, TagOut
 from app.serialize import dump_loaded
 from app.services.analytics import model_cards
@@ -19,7 +19,7 @@ from app.settings import settings
 router = APIRouter(prefix="/models", tags=["models"])
 
 
-async def _decorate(session: AsyncSession, project: Project, models: list[Model]) -> list[ModelOut]:
+async def _decorate(session: AsyncSession, models: list[Model]) -> list[ModelOut]:
     ids = [m.id for m in models]
     if not ids:
         return []
@@ -70,7 +70,7 @@ async def _decorate(session: AsyncSession, project: Project, models: list[Model]
         )
         desired[deployment.model_id] = desired.get(deployment.model_id, 0) + deployment.replicas
 
-    traffic = await model_cards(session, project_id=project.id, model_ids=ids)
+    traffic = await model_cards(session, model_ids=ids)
 
     out = []
     for model in models:
@@ -104,12 +104,11 @@ async def list_models(
     deployed: bool | None = Query(None, description="only models with a live deployment"),
     include_archived: bool = False,
     page: Page = Depends(pagination),
-    project: Project = Depends(project_dep),
     principal: Principal = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[ModelOut]:
-    principal.require(project.id, "viewer")
-    stmt = sa.select(Model).where(Model.project_id == project.id)
+    principal.require("viewer")
+    stmt = sa.select(Model)
     if not include_archived:
         stmt = stmt.where(Model.archived_at.is_(None))
     if q:
@@ -133,66 +132,65 @@ async def list_models(
     models = list((await session.execute(stmt)).scalars().all())
     if label:
         models = [m for m in models if label in (m.labels or [])]
-    return await _decorate(session, project, models)
+    return await _decorate(session, models)
 
 
 @router.post("", response_model=ModelOut, status_code=201)
-async def create_model(body: ModelIn, request: Request, project: Project = Depends(project_dep),
+async def create_model(body: ModelIn, request: Request,
                        principal: Principal = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> ModelOut:
-    principal.require(project.id, "developer")
+    principal.require("developer")
     existing = (
         await session.execute(
-            sa.select(Model).where(Model.project_id == project.id, Model.slug == body.slug)
+            sa.select(Model).where(Model.slug == body.slug)
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise ApiError("slug_taken", f"'{body.slug}' already exists in this project")
+        raise ApiError("slug_taken", f"'{body.slug}' already exists")
 
-    model = Model(project_id=project.id, **body.model_dump())
+    model = Model(**body.model_dump())
     session.add(model)
     await session.flush()
-    await audit.record(session, action="model.create", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="model",
+    await audit.record(session, action="model.create", actor_id=principal.id,
+                       actor_label=principal.label, target_type="model",
                        target_id=model.id, target_label=model.slug, payload=body.model_dump(),
                        client_ip=request.client.host if request.client else None)
     await session.commit()
-    return (await _decorate(session, project, [model]))[0]
+    return (await _decorate(session, [model]))[0]
 
 
 @router.get("/{ref}", response_model=ModelOut)
-async def get_model(ref: str, project: Project = Depends(project_dep),
+async def get_model(ref: str,
                     principal: Principal = Depends(current_user),
                     session: AsyncSession = Depends(get_session)) -> ModelOut:
-    principal.require(project.id, "viewer")
-    model = await get_model_or_404(session, project.id, ref)
-    return (await _decorate(session, project, [model]))[0]
+    principal.require("viewer")
+    model = await get_model_or_404(session, ref)
+    return (await _decorate(session, [model]))[0]
 
 
 @router.patch("/{ref}", response_model=ModelOut)
 async def update_model(ref: str, body: ModelPatch, request: Request,
-                       project: Project = Depends(project_dep),
                        principal: Principal = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> ModelOut:
-    principal.require(project.id, "developer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("developer")
+    model = await get_model_or_404(session, ref)
     changes = body.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(model, key, value)
-    await audit.record(session, action="model.update", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="model",
+    await audit.record(session, action="model.update", actor_id=principal.id,
+                       actor_label=principal.label, target_type="model",
                        target_id=model.id, target_label=model.slug, payload=changes,
                        client_ip=request.client.host if request.client else None)
     await session.commit()
-    return (await _decorate(session, project, [model]))[0]
+    return (await _decorate(session, [model]))[0]
 
 
 @router.post("/{ref}/archive", response_model=ModelOut)
-async def archive_model(ref: str, request: Request, project: Project = Depends(project_dep),
+async def archive_model(ref: str, request: Request,
                         principal: Principal = Depends(current_user),
                         session: AsyncSession = Depends(get_session)) -> ModelOut:
-    principal.require(project.id, "admin")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("admin")
+    model = await get_model_or_404(session, ref)
     live = (
         await session.execute(
             sa.select(sa.func.count()).select_from(Deployment)
@@ -203,22 +201,21 @@ async def archive_model(ref: str, request: Request, project: Project = Depends(p
         raise ApiError("conflict",
                        "stop the live deployments before archiving this model")
     model.archived_at = sa.func.now()
-    await audit.record(session, action="model.archive", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="model",
+    await audit.record(session, action="model.archive", actor_id=principal.id,
+                       actor_label=principal.label, target_type="model",
                        target_id=model.id, target_label=model.slug,
                        client_ip=request.client.host if request.client else None)
     await session.commit()
-    return (await _decorate(session, project, [model]))[0]
+    return (await _decorate(session, [model]))[0]
 
 
 @router.delete("/{ref}", status_code=204)
 async def delete_model(ref: str, request: Request, purge_weights: bool = True,
-                       project: Project = Depends(project_dep),
                        principal: Principal = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> None:
     """Removes the model, its versions and (by default) its weights from storage."""
-    principal.require(project.id, "admin")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("admin")
+    model = await get_model_or_404(session, ref)
     live = (
         await session.execute(
             sa.select(sa.func.count()).select_from(Deployment)
@@ -229,13 +226,35 @@ async def delete_model(ref: str, request: Request, purge_weights: bool = True,
         raise ApiError("conflict", "stop every deployment of this model before deleting it")
 
     if purge_weights:
-        await storage.delete_prefix(settings.s3_bucket_weights, f"{project.slug}/{model.slug}/")
-        await storage.delete_prefix(settings.s3_bucket_captures, f"{project.slug}/{model.slug}/")
+        for prefix in await _storage_prefixes(session, model):
+            await storage.delete_prefix(settings.s3_bucket_weights, prefix)
+            await storage.delete_prefix(settings.s3_bucket_captures, prefix)
 
-    await audit.record(session, action="model.delete", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="model",
+    await audit.record(session, action="model.delete", actor_id=principal.id,
+                       actor_label=principal.label, target_type="model",
                        target_id=model.id, target_label=model.slug,
                        payload={"purge_weights": purge_weights},
                        client_ip=request.client.host if request.client else None)
     await session.delete(model)
     await session.commit()
+
+
+async def _storage_prefixes(session: AsyncSession, model: Model) -> set[str]:
+    """Every object-store directory this model's weights and captures can live under.
+
+    New objects sit under `{model}/`. Installs that predate the single-instance
+    layout stored them under `{project}/{model}/`; those keys are still on the
+    version rows, so their directories are found from there rather than guessed.
+    """
+    prefixes = {f"{model.slug}/"}
+    keys = (
+        await session.execute(
+            sa.select(ModelVersion.weights_key).where(ModelVersion.model_id == model.id,
+                                                      ModelVersion.weights_key.is_not(None))
+        )
+    ).scalars().all()
+    for key in keys:
+        parts = key.split("/")
+        if len(parts) >= 3 and parts[-3] == model.slug:
+            prefixes.add("/".join(parts[:-2]) + "/")
+    return prefixes

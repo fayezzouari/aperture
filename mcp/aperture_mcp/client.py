@@ -15,8 +15,6 @@ import httpx
 
 from .settings import Settings
 
-PROJECT_HEADER = "x-aperture-project"
-
 
 class ApertureError(RuntimeError):
     """Aperture's error contract: {"error": {"code", "message", "request_id", "details"}}."""
@@ -52,20 +50,14 @@ class ApertureClient:
 
     # ------------------------------------------------------------------ calls
 
-    def _headers(self, project: str | None) -> dict[str, str]:
-        slug = project or self.settings.project
-        return {PROJECT_HEADER: slug} if slug else {}
-
-    async def get(self, path: str, *, params: dict[str, Any] | None = None,
-                  project: str | None = None) -> Any:
-        response = await self._http.get(path, params=_clean(params), headers=self._headers(project))
+    async def get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+        response = await self._http.get(path, params=_clean(params))
         return self._body(response)
 
     async def post_json(self, path: str, body: dict[str, Any], *,
-                        params: dict[str, Any] | None = None, project: str | None = None,
+                        params: dict[str, Any] | None = None,
                         timeout: float | None = None) -> Any:
         response = await self._http.post(path, json=body, params=_clean(params),
-                                         headers=self._headers(project),
                                          timeout=timeout or self.settings.timeout_s)
         return self._body(response)
 

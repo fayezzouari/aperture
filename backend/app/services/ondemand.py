@@ -24,10 +24,10 @@ import logging
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import audit
 from app.deps import Principal
 from app.errors import ApiError
-from app.models import Assignment, Deployment, Model, ModelVersion, Project
-from app import audit
+from app.models import Assignment, Deployment, Model, ModelVersion
 from app.services.deployer import reconcile
 
 log = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 POLL_SECONDS = 0.75
 
 
-async def ensure_serving(session: AsyncSession, project: Project, model: Model,
+async def ensure_serving(session: AsyncSession, model: Model,
                          version: ModelVersion, principal: Principal,
                          *, timeout: float = 150.0,
                          client_ip: str | None = None) -> Deployment:
@@ -68,7 +68,7 @@ async def ensure_serving(session: AsyncSession, project: Project, model: Model,
     ).scalar_one_or_none()
 
     if deployment is None:
-        deployment = Deployment(project_id=project.id, model_id=model.id,
+        deployment = Deployment(model_id=model.id,
                                 version_id=version.id, mode="primary",
                                 status="pending", replicas=1)
         session.add(deployment)
@@ -84,8 +84,7 @@ async def ensure_serving(session: AsyncSession, project: Project, model: Model,
     if created:
         await session.flush()
         await audit.record(
-            session, action="deployment.create", project_id=project.id,
-            actor_id=principal.id, actor_label=principal.label,
+            session, action="deployment.create", actor_id=principal.id, actor_label=principal.label,
             target_type="deployment", target_id=deployment.id,
             target_label=f"{model.slug} v{version.version} (primary)",
             payload={"replicas": deployment.replicas, "on_demand": True},

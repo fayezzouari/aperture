@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, sha256, uploadWeights } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useInstance, useProjects, useRole } from "../lib/hooks";
+import { can, useInstance, useRole } from "../lib/hooks";
 import { Dropzone, ProgressBar, TagRail } from "../components/bits";
 import { Badge, Button, CodeBlock, EmptyState, ErrorNote, Field, Modal, Panel, Spinner, Status, Tabs, useToast } from "../components/ui";
 import Playground from "./model/Playground";
@@ -74,9 +74,7 @@ export default function ModelDetail() {
   const { slug = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") ?? "versions";
-  const projects = useProjects();
-  const projectId = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project"))?.id;
-  const role = useRole(projectId);
+  const role = useRole();
 
   const model = useQuery<Model>({ queryKey: ["model", slug], queryFn: () => api(`/v1/models/${slug}`) });
   const versions = useQuery<Version[]>({ queryKey: ["versions", slug], queryFn: () => api(`/v1/models/${slug}/versions`), refetchInterval: 10_000 });

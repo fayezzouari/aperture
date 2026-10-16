@@ -12,10 +12,11 @@ from app.api.v1 import (
     models_api,
     observability,
     predict,
-    projects,
     reports,
+    settings_api,
     tags,
     tokens,
+    users,
     versions,
     workflows,
 )
@@ -23,7 +24,8 @@ from app.api.v1 import (
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
 v1.include_router(tokens.router)
-v1.include_router(projects.router)
+v1.include_router(users.router)
+v1.include_router(settings_api.router)
 v1.include_router(models_api.router)
 v1.include_router(versions.router)
 v1.include_router(tags.router)

@@ -2,7 +2,6 @@
 
     APERTURE_URL      https://aperture.internal      (required)
     APERTURE_TOKEN    ap_pat_...                     (required)
-    APERTURE_PROJECT  default                        (optional project slug)
 
 The token decides the mode. A personal access token (`ap_pat_`) is a user and
 reaches everything the user can; an API key (`ap_`) only reaches the inference
@@ -28,7 +27,6 @@ class ConfigError(RuntimeError):
 class Settings:
     url: str
     token: str
-    project: str | None = None
     timeout_s: float = 60.0
     predict_timeout_s: float = 180.0
     max_image_px: int = 1568  # longest side handed back to the model; larger buys nothing
@@ -57,5 +55,4 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
             "APERTURE_TOKEN is not set - create a personal access token under "
             f"{url}/account/tokens"
         )
-    project = (env.get("APERTURE_PROJECT") or "").strip() or None
-    return Settings(url=url, token=token, project=project)
+    return Settings(url=url, token=token)

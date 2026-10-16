@@ -16,7 +16,6 @@ class AlertRule(Base, TimestampMixin):
     __tablename__ = "alert_rules"
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     name: Mapped[str] = mapped_column(sa.String(160))
     metric: Mapped[str] = mapped_column(sa.String(32))
     # error_rate | p99_latency_ms | p95_latency_ms | no_traffic | replica_down | confidence_drop

@@ -16,9 +16,6 @@ class ApiKey(Base, TimestampMixin):
     __tablename__ = "api_keys"
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(
-        sa.ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
     name: Mapped[str] = mapped_column(sa.String(160), nullable=False)
     prefix: Mapped[str] = mapped_column(sa.String(24), unique=True, index=True)
     key_hash: Mapped[str] = mapped_column(sa.String(128), nullable=False)

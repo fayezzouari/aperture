@@ -30,7 +30,6 @@ class ModelPatch(BaseModel):
 
 class ModelOut(ORMModel):
     id: str
-    project_id: str
     slug: str
     name: str
     task: str

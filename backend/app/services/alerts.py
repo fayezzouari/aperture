@@ -57,7 +57,7 @@ async def evaluate(session: AsyncSession, rule: AlertRule) -> dict | None:
     if breached and rule.state != "firing":
         rule.state = "firing"
         rule.last_fired_at = datetime.now(UTC)
-        event = AlertEvent(rule_id=rule.id, project_id=rule.project_id, value=value,
+        event = AlertEvent(rule_id=rule.id, value=value,
                            message=message)
         session.add(event)
         await session.flush()
@@ -86,7 +86,6 @@ async def _measure(session: AsyncSession, rule: AlertRule) -> tuple[float | None
             (
                 await session.execute(
                     sa.select(Deployment).where(
-                        Deployment.project_id == rule.project_id,
                         Deployment.status.in_(("live", "warming")),
                         *([Deployment.model_id == rule.model_id] if rule.model_id else []),
                     )
@@ -110,7 +109,7 @@ async def _measure(session: AsyncSession, rule: AlertRule) -> tuple[float | None
             f"{missing} replica(s) missing across {len(deployments)} deployment(s)"
         )
 
-    data = await summary(session, project_id=rule.project_id, window_minutes=window,
+    data = await summary(session, window_minutes=window,
                          model_id=rule.model_id, version_id=rule.version_id)
     requests = data["requests"]
 
@@ -133,7 +132,7 @@ async def _measure(session: AsyncSession, rule: AlertRule) -> tuple[float | None
         )
     if rule.metric == "confidence_drop":
         since = datetime.now(UTC) - timedelta(minutes=window)
-        clauses = [InferenceLog.project_id == rule.project_id, InferenceLog.created_at >= since,
+        clauses = [InferenceLog.created_at >= since,
                    InferenceLog.status == "ok"]
         if rule.version_id:
             clauses.append(InferenceLog.version_id == rule.version_id)
@@ -168,7 +167,6 @@ async def deliver(rule: AlertRule, message: str, value: float,
         "window_minutes": rule.window_minutes,
         "state": "resolved" if resolved else "firing",
         "message": message,
-        "project_id": rule.project_id,
         "model_id": rule.model_id,
         "version_id": rule.version_id,
         "url": f"{settings.public_url}/alerts",

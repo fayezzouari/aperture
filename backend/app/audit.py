@@ -22,7 +22,7 @@ actor_type_var: ContextVar[str | None] = ContextVar("audit_actor_type", default=
 
 # Actions are a closed vocabulary so the UI can filter on them reliably.
 ACTIONS = (
-    "project.create", "project.update", "project.archive",
+    "settings.update",
     "model.create", "model.update", "model.archive", "model.delete",
     "version.upload_start", "version.upload_complete", "version.publish",
     "version.validate", "version.deprecate", "version.archive", "version.delete",
@@ -45,7 +45,6 @@ async def record(
     session: AsyncSession,
     *,
     action: str,
-    project_id: str | None,
     actor_type: str | None = None,
     actor_id: str | None = None,
     actor_label: str = "",
@@ -57,7 +56,6 @@ async def record(
     commit: bool = False,
 ) -> None:
     entry = AuditLog(
-        project_id=project_id,
         actor_type=actor_type or actor_type_var.get() or "user",
         actor_id=actor_id,
         actor_label=actor_label,
@@ -71,5 +69,4 @@ async def record(
     session.add(entry)
     if commit:
         await session.commit()
-    log.info("audit", extra={"action": action, "actor": actor_label, "target": target_label,
-                             "project_id": project_id})
+    log.info("audit", extra={"action": action, "actor": actor_label, "target": target_label})

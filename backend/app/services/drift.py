@@ -10,7 +10,7 @@ exposure, a client sending 4K where it used to send 720p.
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +29,7 @@ async def rollup_hour(session: AsyncSession, *, hour_start: datetime) -> int:
     rows = (
         await session.execute(
             sa.select(
-                InferenceLog.project_id, InferenceLog.model_id, InferenceLog.version_id,
+                InferenceLog.model_id, InferenceLog.version_id,
                 sa.func.count().label("requests"),
                 sa.func.avg(sa.cast(InferenceLog.confidence["mean"].as_float(), sa.Float))
                 .label("confidence_mean"),
@@ -46,7 +46,7 @@ async def rollup_hour(session: AsyncSession, *, hour_start: datetime) -> int:
             )
             .where(InferenceLog.created_at >= hour_start, InferenceLog.created_at < hour_end,
                    InferenceLog.status == "ok", InferenceLog.version_id.is_not(None))
-            .group_by(InferenceLog.project_id, InferenceLog.model_id, InferenceLog.version_id)
+            .group_by(InferenceLog.model_id, InferenceLog.version_id)
         )
     ).all()
 
@@ -71,7 +71,7 @@ async def rollup_hour(session: AsyncSession, *, hour_start: datetime) -> int:
         ).scalar_one_or_none()
         if existing is None:
             session.add(DriftWindow(
-                project_id=row.project_id, model_id=row.model_id, version_id=row.version_id,
+                model_id=row.model_id, version_id=row.version_id,
                 window_start=hour_start, window_end=hour_end, request_count=int(row.requests),
                 stats=stats,
             ))

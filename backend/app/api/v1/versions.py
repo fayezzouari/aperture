@@ -2,40 +2,36 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from aperture_core import preset_config, preset_summaries
 from aperture_core.configspec import ModelConfig
 from aperture_core.sandbox import validate_source
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app import audit, storage
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404, project_dep
+from app.deps import Principal, current_user, get_model_or_404
 from app.errors import ApiError
-from app.services.artifact_state import guard_servable
 from app.models import (
-    Assignment,
     Deployment,
     Job,
     Model,
     ModelVersion,
-    Project,
     Tag,
     UploadSession,
 )
 from app.schemas import (
     ConversionIn,
-    RoboflowImportIn,
     HookValidateIn,
     HookValidateOut,
     JobOut,
     PresetOut,
+    RoboflowImportIn,
     UploadInit,
     UploadSessionOut,
     VersionCompare,
@@ -45,6 +41,7 @@ from app.schemas import (
 )
 from app.serialize import dump
 from app.services.analytics import version_traffic
+from app.services.artifact_state import guard_servable
 from app.settings import settings
 
 log = logging.getLogger("aperture.versions")
@@ -61,10 +58,9 @@ IMMUTABLE_AFTER_PUBLISH = ("config",)
 # --------------------------------------------------------------------- helpers
 
 
-async def _model(session: AsyncSession, project: Project, ref: str,
-                 principal: Principal, role: str) -> Model:
-    principal.require(project.id, role)
-    return await get_model_or_404(session, project.id, ref)
+async def _model(session: AsyncSession, ref: str, principal: Principal, role: str) -> Model:
+    principal.require(role)
+    return await get_model_or_404(session, ref)
 
 
 async def _version(session: AsyncSession, model: Model, number: str) -> ModelVersion:
@@ -132,7 +128,7 @@ def _apply_artifact(version: ModelVersion, artifact: dict) -> None:
         }
 
 
-async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
+async def _autoconvert(session: AsyncSession, model: Model,
                        version: ModelVersion, principal: Principal,
                        client_ip: str | None) -> Job | None:
     """Queue a conversion only when nothing in the fleet can run the file as it is.
@@ -163,13 +159,13 @@ async def _autoconvert(session: AsyncSession, project_id: str, model: Model,
     if not await worker_alive(QUEUE_CONVERT):
         return None
 
-    job = Job(project_id=project_id, kind="convert", status="queued", created_by=principal.id,
+    job = Job(kind="convert", status="queued", created_by=principal.id,
               params={"model_id": model.id, "version_id": version.id, "target": "onnx",
                       "automatic": True})
     session.add(job)
     await session.flush()
-    await audit.record(session, action="version.convert", project_id=project_id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="version.convert", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="version", target_id=version.id,
                        target_label=f"{model.slug} v{version.version}",
                        payload={"target": "onnx", "automatic": True},
@@ -255,10 +251,9 @@ async def validate_hook(body: HookValidateIn,
 
 @router.get("/models/{ref}/versions", response_model=list[VersionOut])
 async def list_versions(ref: str, include_archived: bool = False,
-                        project: Project = Depends(project_dep),
                         principal: Principal = Depends(current_user),
                         session: AsyncSession = Depends(get_session)) -> list[VersionOut]:
-    model = await _model(session, project, ref, principal, "viewer")
+    model = await _model(session, ref, principal, "viewer")
     stmt = sa.select(ModelVersion).where(ModelVersion.model_id == model.id)
     if not include_archived:
         stmt = stmt.where(ModelVersion.status != "archived")
@@ -268,11 +263,10 @@ async def list_versions(ref: str, include_archived: bool = False,
 
 @router.post("/models/{ref}/versions", response_model=VersionOut, status_code=201)
 async def create_version(ref: str, body: VersionCreate, request: Request,
-                         project: Project = Depends(project_dep),
                          principal: Principal = Depends(current_user),
                          session: AsyncSession = Depends(get_session)) -> VersionOut:
     """R2.1 - versions auto-increment; R1.6 - config is inherited, then editable."""
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
 
     latest = (
         await session.execute(
@@ -315,8 +309,8 @@ async def create_version(ref: str, body: VersionCreate, request: Request,
     )
     session.add(version)
     await session.flush()
-    await audit.record(session, action="version.upload_start", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.upload_start", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{number}",
                        payload={"preset": body.preset,
                                 "inherited_from": parent.version if parent else None},
@@ -326,20 +320,19 @@ async def create_version(ref: str, body: VersionCreate, request: Request,
 
 
 @router.get("/models/{ref}/versions/{number}", response_model=VersionOut)
-async def get_version(ref: str, number: str, project: Project = Depends(project_dep),
+async def get_version(ref: str, number: str,
                       principal: Principal = Depends(current_user),
                       session: AsyncSession = Depends(get_session)) -> VersionOut:
-    model = await _model(session, project, ref, principal, "viewer")
+    model = await _model(session, ref, principal, "viewer")
     return await _out(session, await _version(session, model, number))
 
 
 @router.patch("/models/{ref}/versions/{number}", response_model=VersionOut)
 async def patch_version(ref: str, number: str, body: VersionPatch, request: Request,
-                        project: Project = Depends(project_dep),
                         principal: Principal = Depends(current_user),
                         session: AsyncSession = Depends(get_session)) -> VersionOut:
     """Provenance stays editable; the config freezes at publish (R2.1)."""
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     changes = body.model_dump(exclude_unset=True)
 
@@ -359,7 +352,7 @@ async def patch_version(ref: str, number: str, body: VersionPatch, request: Requ
         setattr(version, key, value)
 
     await audit.record(
-        session, action="version.config_update", project_id=project.id, actor_id=principal.id,
+        session, action="version.config_update", actor_id=principal.id,
         actor_label=principal.label, target_type="version", target_id=version.id,
         target_label=f"{model.slug} v{version.version}",
         payload={"fields": sorted(changes) + (["config"] if body.config is not None else [])},
@@ -375,11 +368,10 @@ async def patch_version(ref: str, number: str, body: VersionPatch, request: Requ
 @router.post("/models/{ref}/versions/{number}/uploads", response_model=UploadSessionOut,
              status_code=201)
 async def start_upload(ref: str, number: str, body: UploadInit, request: Request,
-                       project: Project = Depends(project_dep),
                        principal: Principal = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> UploadSessionOut:
     """R1.1 - open a resumable multipart upload for this version's weights."""
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     if version.status not in ("draft", "failed"):
         raise ApiError("version_immutable",
@@ -390,12 +382,12 @@ async def start_upload(ref: str, number: str, body: UploadInit, request: Request
                        f"{settings.max_upload_mb / 1024:.0f} GB limit")
 
     fmt = _artifact_format(body.filename, version.artifact_format)
-    key = storage.weights_key(project.slug, model.slug, version.version, body.filename)
+    key = storage.weights_key(model.slug, version.version, body.filename)
     chunk = body.chunk_bytes or settings.upload_chunk_mb * 1024 * 1024
     multipart_id = await storage.create_multipart(settings.s3_bucket_weights, key)
 
     upload = UploadSession(
-        project_id=project.id, model_id=model.id, filename=body.filename,
+        model_id=model.id, filename=body.filename,
         total_bytes=body.total_bytes, chunk_bytes=chunk, key=key, multipart_id=multipart_id,
         sha256_expected=body.sha256, created_by=principal.id,
         expires_at=datetime.now(UTC) + timedelta(days=2),
@@ -415,7 +407,7 @@ async def upload_status(upload_id: str, principal: Principal = Depends(current_u
     upload = await session.get(UploadSession, upload_id)
     if upload is None:
         raise ApiError("not_found", "no such upload session")
-    principal.require(upload.project_id, "developer")
+    principal.require("developer")
     parts = sorted(p["part"] for p in (upload.parts or []))
     return UploadSessionOut.model_validate(
         await dump(session, upload, received_parts=parts,
@@ -430,7 +422,7 @@ async def upload_part(upload_id: str, part_number: int, chunk: UploadFile = File
     upload = await session.get(UploadSession, upload_id)
     if upload is None:
         raise ApiError("not_found", "no such upload session")
-    principal.require(upload.project_id, "developer")
+    principal.require("developer")
     if upload.status != "open":
         raise ApiError("conflict", f"this upload session is {upload.status}")
     if part_number < 1 or part_number > 10_000:
@@ -462,7 +454,7 @@ async def complete_upload(upload_id: str, request: Request,
     upload = await session.get(UploadSession, upload_id)
     if upload is None:
         raise ApiError("not_found", "no such upload session")
-    principal.require(upload.project_id, "developer")
+    principal.require("developer")
     if not upload.parts:
         raise ApiError("upload_incomplete", "no chunks were received for this upload")
 
@@ -505,11 +497,11 @@ async def complete_upload(upload_id: str, request: Request,
     version.weights_sha256 = digest
     version.status = "draft"
     _apply_artifact(version, artifact)
-    convert_job = await _autoconvert(session, upload.project_id, model, version, principal,
+    convert_job = await _autoconvert(session, model, version, principal,
                                      request.client.host if request.client else None)
 
-    await audit.record(session, action="version.upload_complete", project_id=upload.project_id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.upload_complete", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        payload={"bytes": size, "sha256": digest, "key": upload.key,
                                 "artifact": artifact.get("kind"),
@@ -524,12 +516,11 @@ async def complete_upload(upload_id: str, request: Request,
 async def upload_weights_single_shot(
     ref: str, number: str, request: Request, file: UploadFile = File(...),
     sha256: str | None = Query(None, min_length=64, max_length=64),
-    project: Project = Depends(project_dep),
     principal: Principal = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> VersionOut:
     """Convenience path for small artifacts; large files should use the chunked flow."""
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     if version.status not in ("draft", "failed"):
         raise ApiError("version_immutable", f"version {version.version} is {version.status}")
@@ -544,18 +535,18 @@ async def upload_weights_single_shot(
         raise ApiError("validation_failed", "the uploaded bytes do not match the checksum",
                        details={"expected": sha256, "actual": digest})
 
-    key = storage.weights_key(project.slug, model.slug, version.version,
+    key = storage.weights_key(model.slug, version.version,
                               file.filename or "weights.onnx")
     await storage.put_bytes(settings.s3_bucket_weights, key, data)
     _, _, artifact = await storage.verify_and_inspect(settings.s3_bucket_weights, key)
     version.weights_key, version.weights_bytes = key, len(data)
     version.weights_sha256, version.artifact_format = digest, fmt
     _apply_artifact(version, artifact)
-    convert_job = await _autoconvert(session, project.id, model, version, principal,
+    convert_job = await _autoconvert(session, model, version, principal,
                                      request.client.host if request.client else None)
 
-    await audit.record(session, action="version.upload_complete", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.upload_complete", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        payload={"bytes": len(data), "sha256": digest},
                        client_ip=request.client.host if request.client else None)
@@ -565,10 +556,10 @@ async def upload_weights_single_shot(
 
 
 @router.get("/models/{ref}/versions/{number}/download")
-async def download_weights(ref: str, number: str, project: Project = Depends(project_dep),
+async def download_weights(ref: str, number: str,
                            principal: Principal = Depends(current_user),
                            session: AsyncSession = Depends(get_session)) -> dict:
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     if not version.weights_key:
         raise ApiError("not_found", "this version has no weights yet")
@@ -584,10 +575,9 @@ async def download_weights(ref: str, number: str, project: Project = Depends(pro
 @router.post("/models/{ref}/versions/{number}/publish", response_model=VersionOut)
 async def publish_version(ref: str, number: str, request: Request,
                           force: bool = Query(False, description="publish despite a failed check"),
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> VersionOut:
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     if not version.weights_key:
         raise ApiError("upload_incomplete", "upload the weights before publishing")
@@ -598,8 +588,8 @@ async def publish_version(ref: str, number: str, request: Request,
         await guard_servable(session, version)
     version.status = "ready"
     version.published_at = version.published_at or datetime.now(UTC)
-    await audit.record(session, action="version.publish", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.publish", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        payload={"forced": force},
                        client_ip=request.client.host if request.client else None)
@@ -612,11 +602,10 @@ async def publish_version(ref: str, number: str, request: Request,
 
 @router.post("/models/{ref}/versions/{number}/deprecate", response_model=VersionOut)
 async def deprecate_version(ref: str, number: str, request: Request,
-                            project: Project = Depends(project_dep),
                             principal: Principal = Depends(current_user),
                             session: AsyncSession = Depends(get_session)) -> VersionOut:
     """R2.6 - mark a version as on its way out without breaking callers pinned to it."""
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     tags = list(
         (await session.execute(sa.select(Tag.name).where(Tag.version_id == version.id)))
@@ -627,8 +616,8 @@ async def deprecate_version(ref: str, number: str, request: Request,
                        f"move these tags off version {version.version} first: {', '.join(tags)}")
     version.status = "deprecated"
     version.deprecated_at = datetime.now(UTC)
-    await audit.record(session, action="version.deprecate", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.deprecate", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        client_ip=request.client.host if request.client else None)
     await session.commit()
@@ -638,11 +627,10 @@ async def deprecate_version(ref: str, number: str, request: Request,
 @router.post("/models/{ref}/versions/{number}/archive", response_model=VersionOut)
 async def archive_version(ref: str, number: str, request: Request,
                           purge_weights: bool = Query(False),
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> VersionOut:
     """R2.6 - archive, optionally reclaiming the weights blob."""
-    model = await _model(session, project, ref, principal, "admin")
+    model = await _model(session, ref, principal, "admin")
     version = await _version(session, model, number)
     live = (
         await session.execute(
@@ -657,8 +645,8 @@ async def archive_version(ref: str, number: str, request: Request,
         await storage.delete_object(settings.s3_bucket_weights, version.weights_key)
         version.weights_key = None
     version.status = "archived"
-    await audit.record(session, action="version.archive", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.archive", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        payload={"purge_weights": purge_weights},
                        client_ip=request.client.host if request.client else None)
@@ -671,11 +659,10 @@ async def archive_version(ref: str, number: str, request: Request,
 
 @router.get("/models/{ref}/version-compare", response_model=VersionCompare)
 async def compare_versions(ref: str, left: int, right: int,
-                           project: Project = Depends(project_dep),
                            principal: Principal = Depends(current_user),
                            session: AsyncSession = Depends(get_session)) -> VersionCompare:
     """R2.5 - metadata, metrics, latency and config differences side by side."""
-    model = await _model(session, project, ref, principal, "viewer")
+    model = await _model(session, ref, principal, "viewer")
     a = await _version(session, model, str(left))
     b = await _version(session, model, str(right))
 
@@ -721,21 +708,20 @@ def _diff_config(left: dict, right: dict, prefix: str = "") -> list[dict]:
 
 @router.post("/imports/roboflow", response_model=JobOut, status_code=202, tags=["models"])
 async def import_from_roboflow(body: RoboflowImportIn, request: Request,
-                               project: Project = Depends(project_dep),
                                principal: Principal = Depends(current_user),
                                session: AsyncSession = Depends(get_session)) -> JobOut:
     """R1.11 - import a trained Roboflow model, names and all.
 
     Uploading weights by hand leaves two things to get right that nothing checks:
     the class list has to come from the *same* version the weights did - two
-    versions of one project order their classes differently - and RF-DETR's dead
+    versions of one Roboflow project order their classes differently - and RF-DETR's dead
     leading logit column has to be accounted for. Get either wrong and every
     prediction is mislabelled while the model looks perfectly healthy.
 
     Both are knowable, so this reads them: the ordered class list from the
     version being imported, and the offset measured on the exported graph.
     """
-    principal.require(project.id, "developer")
+    principal.require("developer")
     from app.jobs.tasks import parse_roboflow_ref
 
     workspace, rf_project, rf_version = parse_roboflow_ref(body.ref)
@@ -758,16 +744,16 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
         )
 
     # the key is a credential: it rides along with the queued task in Redis and never
-    # lands in the job row, which every project viewer can read back
+    # lands in the job row, which every viewer can read back
     params = body.model_dump(exclude={"api_key"})
     params.update(workspace=workspace, project=rf_project, version=rf_version)
-    job = Job(project_id=project.id, kind="roboflow_import", status="queued",
+    job = Job(kind="roboflow_import", status="queued",
               created_by=principal.id, params=params)
     session.add(job)
     await session.flush()
     # same in the audit trail: recorded as present rather than written down
-    await audit.record(session, action="model.import", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="model",
+    await audit.record(session, action="model.import", actor_id=principal.id,
+                       actor_label=principal.label, target_type="model",
                        target_id=job.id, target_label=f"{workspace}/{rf_project}/{rf_version}",
                        payload={"ref": body.ref, "slug": body.slug, "preset": body.preset,
                                 "own_api_key": bool(body.api_key)},
@@ -783,11 +769,10 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
 
 @router.post("/models/{ref}/versions/{number}/convert", response_model=JobOut, status_code=202)
 async def convert_version(ref: str, number: str, body: ConversionIn, request: Request,
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> JobOut:
     """R1.10 - queue an export/quantisation; the result lands as a new draft version."""
-    model = await _model(session, project, ref, principal, "developer")
+    model = await _model(session, ref, principal, "developer")
     version = await _version(session, model, number)
     if not version.weights_key:
         raise ApiError("upload_incomplete", "this version has no weights to convert")
@@ -811,13 +796,13 @@ async def convert_version(ref: str, number: str, body: ConversionIn, request: Re
             "`docker compose --profile convert up -d converter`.",
         )
 
-    job = Job(project_id=project.id, kind="convert", status="queued", created_by=principal.id,
+    job = Job(kind="convert", status="queued", created_by=principal.id,
               params={"model_id": model.id, "version_id": version.id,
                       **body.model_dump()})
     session.add(job)
     await session.flush()
-    await audit.record(session, action="version.convert", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="version",
+    await audit.record(session, action="version.convert", actor_id=principal.id,
+                       actor_label=principal.label, target_type="version",
                        target_id=version.id, target_label=f"{model.slug} v{version.version}",
                        payload=body.model_dump(),
                        client_ip=request.client.host if request.client else None)

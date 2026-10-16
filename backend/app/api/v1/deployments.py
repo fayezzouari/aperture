@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.cache import healthy_runtimes_for_version, invalidate_tag
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404, project_dep
+from app.deps import Principal, current_user, get_model_or_404
 from app.errors import ApiError
-from app.models import Assignment, Deployment, Model, ModelVersion, Project, Runtime, Tag
+from app.models import Assignment, Deployment, Model, ModelVersion, Runtime, Tag
 from app.schemas import (
     DeploymentIn,
     DeploymentOut,
@@ -78,11 +78,10 @@ async def _version_by_number(session: AsyncSession, model: Model, number: int) -
 
 @router.get("/models/{ref}/deployments", response_model=list[DeploymentOut])
 async def list_deployments(ref: str, include_stopped: bool = False,
-                           project: Project = Depends(project_dep),
                            principal: Principal = Depends(current_user),
                            session: AsyncSession = Depends(get_session)) -> list[DeploymentOut]:
-    principal.require(project.id, "viewer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("viewer")
+    model = await get_model_or_404(session, ref)
     stmt = (
         sa.select(Deployment, ModelVersion.version)
         .join(ModelVersion, ModelVersion.id == Deployment.version_id)
@@ -96,13 +95,12 @@ async def list_deployments(ref: str, include_stopped: bool = False,
 
 @router.post("/models/{ref}/deployments", response_model=DeploymentOut, status_code=201)
 async def create_deployment(ref: str, body: DeploymentIn, request: Request,
-                            project: Project = Depends(project_dep),
                             principal: Principal = Depends(current_user),
                             session: AsyncSession = Depends(get_session)) -> DeploymentOut:
     """R4.6 - a new deployment warms up on its own replicas; nothing else is touched
     until you move the tag, so traffic never lands on a cold model."""
-    principal.require(project.id, "developer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("developer")
+    model = await get_model_or_404(session, ref)
 
     if body.version_id:
         version = await session.get(ModelVersion, body.version_id)
@@ -144,13 +142,13 @@ async def create_deployment(ref: str, body: DeploymentIn, request: Request,
         deployment = existing
         action = "deployment.update"
     else:
-        deployment = Deployment(project_id=project.id, model_id=model.id, version_id=version.id,
+        deployment = Deployment(model_id=model.id, version_id=version.id,
                                status="pending", **payload)
         session.add(deployment)
         action = "deployment.create"
 
     await session.flush()
-    await audit.record(session, action=action, project_id=project.id, actor_id=principal.id,
+    await audit.record(session, action=action, actor_id=principal.id,
                        actor_label=principal.label, target_type="deployment",
                        target_id=deployment.id,
                        target_label=f"{model.slug} v{version.version} ({body.mode})",
@@ -169,7 +167,7 @@ async def patch_deployment(deployment_id: str, body: DeploymentPatch, request: R
     deployment = await session.get(Deployment, deployment_id)
     if deployment is None:
         raise ApiError("not_found", "no such deployment")
-    principal.require(deployment.project_id, "developer")
+    principal.require("developer")
 
     changes = body.model_dump(exclude_unset=True)
     if "replicas" in changes and changes["replicas"] == 0:
@@ -182,8 +180,7 @@ async def patch_deployment(deployment_id: str, body: DeploymentPatch, request: R
 
     action = "deployment.scale" if set(changes) <= {"replicas", "min_replicas", "max_replicas"} \
         else "deployment.update"
-    await audit.record(session, action=action, project_id=deployment.project_id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action=action, actor_id=principal.id, actor_label=principal.label,
                        target_type="deployment", target_id=deployment.id, payload=changes,
                        client_ip=request.client.host if request.client else None)
     await session.commit()
@@ -200,7 +197,7 @@ async def stop_deployment(deployment_id: str, request: Request,
     deployment = await session.get(Deployment, deployment_id)
     if deployment is None:
         raise ApiError("not_found", "no such deployment")
-    principal.require(deployment.project_id, "developer")
+    principal.require("developer")
 
     tags = list(
         (
@@ -217,8 +214,8 @@ async def stop_deployment(deployment_id: str, request: Request,
 
     deployment.status = "draining"
     deployment.replicas = 0
-    await audit.record(session, action="deployment.stop", project_id=deployment.project_id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="deployment.stop", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="deployment", target_id=deployment.id,
                        client_ip=request.client.host if request.client else None)
     await session.commit()
@@ -229,12 +226,11 @@ async def stop_deployment(deployment_id: str, request: Request,
 
 @router.post("/models/{ref}/rollback", response_model=DeploymentOut)
 async def rollback(ref: str, body: RollbackIn, request: Request,
-                   project: Project = Depends(project_dep),
                    principal: Principal = Depends(current_user),
                    session: AsyncSession = Depends(get_session)) -> DeploymentOut:
     """R2.3 - one click: repoint the tag at the previous version. No redeploy."""
-    principal.require(project.id, "developer")
-    model = await get_model_or_404(session, project.id, ref)
+    principal.require("developer")
+    model = await get_model_or_404(session, ref)
     tag = (
         await session.execute(
             sa.select(Tag).where(Tag.model_id == model.id, Tag.name == body.tag)
@@ -280,8 +276,8 @@ async def rollback(ref: str, body: RollbackIn, request: Request,
     tag.updated_by = principal.id
     await session.flush()
     await invalidate_tag(model.id, tag.name)
-    await audit.record(session, action="deployment.rollback", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label, target_type="tag",
+    await audit.record(session, action="deployment.rollback", actor_id=principal.id,
+                       actor_label=principal.label, target_type="tag",
                        target_id=tag.id, target_label=f"{model.slug}:{tag.name}",
                        payload={"to_version": target.version, "from_version_id": previous},
                        client_ip=request.client.host if request.client else None)
@@ -317,6 +313,5 @@ async def list_runtimes(principal: Principal = Depends(current_user),
 @router.post("/fleet/reconcile", tags=["fleet"])
 async def force_reconcile(principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> dict:
-    if not principal.is_superadmin and "admin" not in principal.roles.values():
-        raise ApiError("forbidden", "reconciling the fleet needs an admin role")
+    principal.require("admin")
     return await reconcile(session)

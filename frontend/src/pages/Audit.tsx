@@ -72,7 +72,7 @@ export default function Audit() {
             <ErrorNote error={entries.error} />
           </div>
         ) : !entries.data?.length ? (
-          <EmptyState title="Nothing recorded" body="Actions appear here as soon as anyone changes something in this project." />
+          <EmptyState title="Nothing recorded" body="Actions appear here as soon as anyone changes something." />
         ) : (
           <div className="scroll-x">
             <table className="data-table">

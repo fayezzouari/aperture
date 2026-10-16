@@ -12,12 +12,11 @@ from app.models.base import JSON_T, Base, TimestampMixin, new_id
 from app.models.deployment import Deployment
 from app.models.drift_window import DriftWindow
 from app.models.inference_log import InferenceLog
+from app.models.instance_settings import InstanceSettings
 from app.models.job import Job
-from app.models.membership import Membership
 from app.models.model import Model
 from app.models.model_version import ModelVersion
 from app.models.personal_access_token import PersonalAccessToken
-from app.models.project import Project
 from app.models.report_schedule import ReportSchedule
 from app.models.runtime import Runtime
 from app.models.tag import Tag
@@ -37,12 +36,11 @@ __all__ = [
     "Deployment",
     "DriftWindow",
     "InferenceLog",
+    "InstanceSettings",
     "Job",
-    "Membership",
     "Model",
     "ModelVersion",
     "PersonalAccessToken",
-    "Project",
     "ReportSchedule",
     "Runtime",
     "Tag",

@@ -14,7 +14,7 @@ class RoboflowImportIn(BaseModel):
     )
     slug: str | None = Field(
         None, pattern=r"^[a-z0-9][a-z0-9._-]{1,94}$",
-        description="the Aperture model to land it under; defaults to the project id. "
+        description="the Aperture model to land it under; defaults to the Roboflow project id. "
                     "An existing model gains a new version instead of being replaced.",
     )
     preset: str | None = Field(

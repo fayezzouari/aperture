@@ -28,13 +28,11 @@ def hint_for(error: ApertureError, settings: Settings) -> str | None:
     if code == "forbidden" and settings.mode == "api_key":
         return "an API key only reaches predict and run_workflow; use a personal access token"
     if code == "insufficient_role":
-        return "ask a project admin to raise your role"
+        return "ask an Aperture admin to raise your role"
     if code == "model_not_deployed":
         return "deploy the version, or pass ondemand=true to start one replica (developer role)"
-    if code == "model_not_found" and not settings.project:
-        return "set APERTURE_PROJECT or pass project=<slug>; list_projects shows the slugs"
-    if code == "not_found" and "project" in error.message:
-        return "set APERTURE_PROJECT or pass project=<slug>; list_projects shows the slugs"
+    if code == "model_not_found":
+        return "list_models shows the model slugs"
     if code in ("rate_limited", "queue_full", "no_replica_available"):
         wait = error.details.get("retry_after_seconds")
         return f"retry in {wait} s" if wait else "retry shortly"

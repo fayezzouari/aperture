@@ -1,4 +1,4 @@
-"""The project overview page."""
+"""The overview page."""
 
 from __future__ import annotations
 
@@ -7,12 +7,10 @@ from pydantic import BaseModel
 from app.schemas.alert import AlertRuleOut
 from app.schemas.inference_log import InferenceLogOut
 from app.schemas.metrics import MetricsSummary
-from app.schemas.project import ProjectOut
 from app.schemas.runtime import RuntimeOut
 
 
 class OverviewOut(BaseModel):
-    project: ProjectOut
     models: int
     versions: int
     deployments: int

@@ -243,9 +243,9 @@ def _suffix(key: str) -> str:
     return f".{name.rsplit('.', 1)[-1]}" if "." in name else ""
 
 
-def weights_key(project_slug: str, model_slug: str, version: int, filename: str) -> str:
-    return f"{project_slug}/{model_slug}/v{version}/{filename}"
+def weights_key(model_slug: str, version: int, filename: str) -> str:
+    return f"{model_slug}/v{version}/{filename}"
 
 
-def capture_key(project_slug: str, model_slug: str, request_id: str, index: int, ext: str) -> str:
-    return f"{project_slug}/{model_slug}/{request_id}/{index}.{ext}"
+def capture_key(model_slug: str, request_id: str, index: int, ext: str) -> str:
+    return f"{model_slug}/{request_id}/{index}.{ext}"

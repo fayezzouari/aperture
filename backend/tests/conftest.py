@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db import get_session
 from app.main import app
-from app.models import Base, Membership, Project, User
+from app.models import Base, User
 from app.security import hash_password, issue_token
 
 
@@ -62,39 +62,31 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 @dataclass
 class Person:
     user: User
-    headers: dict[str, str]  # a session JWT plus the default project header
+    headers: dict[str, str]  # a session JWT
 
 
-async def _person(db: AsyncSession, project: Project, email: str, role: str,
-                  superadmin: bool = False) -> Person:
+async def _person(db: AsyncSession, email: str, role: str) -> Person:
     user = User(email=email, name=email.split("@")[0], password_hash=hash_password("pw"),
-                is_superadmin=superadmin)
+                role=role)
     db.add(user)
-    await db.flush()
-    db.add(Membership(user_id=user.id, project_id=project.id, role=role))
     await db.commit()
-    token, _ = issue_token(user, {project.id: role})
-    return Person(user=user, headers={"authorization": f"Bearer {token}",
-                                      "x-aperture-project": project.slug})
+    token, _ = issue_token(user)
+    return Person(user=user, headers={"authorization": f"Bearer {token}"})
 
 
 @pytest.fixture
-async def project(sessionmaker) -> Project:
-    async with sessionmaker() as db:
-        project = Project(slug="default", name="Default")
-        db.add(project)
-        await db.commit()
-        return project
+async def admin(db) -> Person:
+    return await _person(db, "admin@test", "admin")
 
 
 @pytest.fixture
-async def admin(db, project) -> Person:
-    return await _person(db, project, "admin@test", "admin")
+async def developer(db) -> Person:
+    return await _person(db, "developer@test", "developer")
 
 
 @pytest.fixture
-async def viewer(db, project) -> Person:
-    return await _person(db, project, "viewer@test", "viewer")
+async def viewer(db) -> Person:
+    return await _person(db, "viewer@test", "viewer")
 
 
 async def make_pat(client: httpx.AsyncClient, headers: dict[str, str], name: str = "agent",
@@ -104,5 +96,5 @@ async def make_pat(client: httpx.AsyncClient, headers: dict[str, str], name: str
     return response.json()
 
 
-def bearer(token: str, project: str = "default") -> dict[str, str]:
-    return {"authorization": f"Bearer {token}", "x-aperture-project": project}
+def bearer(token: str) -> dict[str, str]:
+    return {"authorization": f"Bearer {token}"}

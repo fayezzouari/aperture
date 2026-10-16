@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { session } from "./lib/api";
-import { useInstance, useMe, useProjects } from "./lib/hooks";
+import { useInstance, useMe } from "./lib/hooks";
 import { Spinner } from "./components/ui";
 
 const Login = lazy(() => import("./pages/Login"));
@@ -96,18 +96,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const me = useMe();
-  const projects = useProjects();
   const instance = useInstance();
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const active = session.project ?? projects.data?.[0]?.slug ?? null;
-  useEffect(() => {
-    if (!session.project && projects.data?.length) {
-      session.project = projects.data[0].slug;
-      queryClient.invalidateQueries();
-    }
-  }, [projects.data, queryClient]);
 
   // a route change closes the mobile drawer and the account menu
   useEffect(() => {
@@ -115,9 +106,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  const role = me.data?.is_superadmin
-    ? "Instance admin"
-    : `Role: ${(active && me.data?.roles[projects.data?.find((p) => p.slug === active)?.id ?? ""]) ?? "viewer"}`;
+  const role = me.data?.role === "admin" ? "Instance admin" : `Role: ${me.data?.role ?? "viewer"}`;
 
   const sidebar = (
     <div className="flex h-full flex-col">
@@ -131,26 +120,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         ) : null}
       </div>
 
-      <div className="px-3 pb-3">
-        <select
-          className="select h-8 w-full border-line bg-transparent text-[12.5px]"
-          value={active ?? ""}
-          onChange={(event) => {
-            session.project = event.target.value;
-            queryClient.invalidateQueries();
-            navigate("/");
-          }}
-          aria-label="Active project"
-        >
-          {(projects.data ?? []).map((project) => (
-            <option key={project.slug} value={project.slug}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <nav className="scroll-y flex-1 overflow-y-auto px-2 pb-4" aria-label="Main">
+      <nav className="scroll-y flex-1 overflow-y-auto px-2 pb-4 pt-2" aria-label="Main">
         {NAV.map((section) => (
           <div key={section.group} className="mt-4 first:mt-0">
             <p className="px-2.5 pb-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-ink-2">{section.group}</p>
@@ -207,7 +177,6 @@ function Shell({ children }: { children: React.ReactNode }) {
                 className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
                 onClick={() => {
                   session.token = null;
-                  session.project = null;
                   queryClient.clear();
                   navigate("/login");
                 }}

@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit, storage
 from app.db import get_session
-from app.deps import Principal, current_user, project_dep
+from app.deps import Principal, current_user
 from app.errors import ApiError
-from app.models import Project, ReportSchedule
+from app.models import ReportSchedule
 from app.schemas import ReportRequest, ReportScheduleIn
 from app.serialize import dump
 from app.services import reports as report_service
@@ -20,12 +20,12 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 
 @router.post("/run")
-async def run_report(body: ReportRequest, project: Project = Depends(project_dep),
+async def run_report(body: ReportRequest,
                      principal: Principal = Depends(current_user),
                      session: AsyncSession = Depends(get_session)):
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     report = await report_service.build(
-        session, project=project, kind=body.kind, group_by=body.group_by,
+        session, kind=body.kind, group_by=body.group_by,
         since_hours=body.since_hours, model_id=body.model_id,
     )
     if body.fmt == "json":
@@ -43,13 +43,12 @@ async def run_report(body: ReportRequest, project: Project = Depends(project_dep
 
 
 @router.get("/schedules")
-async def list_schedules(project: Project = Depends(project_dep),
-                         principal: Principal = Depends(current_user),
+async def list_schedules(principal: Principal = Depends(current_user),
                          session: AsyncSession = Depends(get_session)) -> list[dict]:
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     rows = (
         await session.execute(
-            sa.select(ReportSchedule).where(ReportSchedule.project_id == project.id)
+            sa.select(ReportSchedule)
             .order_by(ReportSchedule.created_at.desc())
         )
     ).scalars().all()
@@ -66,21 +65,20 @@ async def list_schedules(project: Project = Depends(project_dep),
 
 @router.post("/schedules", status_code=201)
 async def create_schedule(body: ReportScheduleIn, request: Request,
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> dict:
-    principal.require(project.id, "developer")
+    principal.require("developer")
     if body.cron:
         _validate_cron(body.cron)
     if body.channel != "none" and not body.destination:
         raise ApiError("invalid_request", f"a {body.channel} destination is required")
 
-    schedule = ReportSchedule(project_id=project.id, created_by=principal.id,
+    schedule = ReportSchedule(created_by=principal.id,
                               **body.model_dump())
     session.add(schedule)
     await session.flush()
-    await audit.record(session, action="report.create", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="report.create", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="report", target_id=schedule.id, target_label=body.name,
                        payload=body.model_dump(),
                        client_ip=request.client.host if request.client else None)
@@ -94,7 +92,7 @@ async def run_schedule_now(schedule_id: str, principal: Principal = Depends(curr
     schedule = await session.get(ReportSchedule, schedule_id)
     if schedule is None:
         raise ApiError("not_found", "no such report schedule")
-    principal.require(schedule.project_id, "developer")
+    principal.require("developer")
     from app.jobs.queue import enqueue
 
     await enqueue("run_report_schedule", schedule.id)
@@ -108,9 +106,9 @@ async def delete_schedule(schedule_id: str, request: Request,
     schedule = await session.get(ReportSchedule, schedule_id)
     if schedule is None:
         raise ApiError("not_found", "no such report schedule")
-    principal.require(schedule.project_id, "developer")
-    await audit.record(session, action="report.delete", project_id=schedule.project_id,
-                       actor_id=principal.id, actor_label=principal.label,
+    principal.require("developer")
+    await audit.record(session, action="report.delete", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="report", target_id=schedule.id, target_label=schedule.name,
                        client_ip=request.client.host if request.client else None)
     await session.delete(schedule)

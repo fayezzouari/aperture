@@ -18,7 +18,6 @@ never has to know whether it is looking at a whole photo or a crop.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import io
 import logging
@@ -26,12 +25,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
+from aperture_core.formats import FORMATS, to_roboflow
+from aperture_core.results import ImageResult
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aperture_core.formats import FORMATS, to_roboflow
-from aperture_core.results import ImageResult
 from app.errors import ApiError
 from app.security import key_allows_model
 from app.services.gateway import (
@@ -203,13 +201,12 @@ def topological_order(by_id: dict, edges: list[dict]) -> tuple[list[str], bool]:
 
 
 class WorkflowEngine:
-    def __init__(self, session: AsyncSession, project, *, request_id: str,
+    def __init__(self, session: AsyncSession, *, request_id: str,
                  trace_headers: dict[str, str] | None = None,
                  want_previews: bool = False, response_format: str = "aperture",
                  params: dict | None = None, api_key=None):
         self.session = session
         self.api_key = api_key  # set when an API key called: model nodes honour its scope
-        self.project = project
         self.request_id = request_id
         self.trace_headers = trace_headers or {}
         self.want_previews = want_previews
@@ -326,7 +323,7 @@ class WorkflowEngine:
                 f"{MAX_ITEMS_PER_NODE}. Add a filter or lower the crop limit upstream.",
             )
 
-        model = await get_model_or_404(self.session, self.project.id, data["model"])
+        model = await get_model_or_404(self.session, data["model"])
         if self.api_key is not None and not key_allows_model(self.api_key, model.id, model.slug):
             raise ApiError(
                 "key_not_scoped_to_model",

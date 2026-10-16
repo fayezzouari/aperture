@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit, storage
 from app.cache import all_runtimes, stream_depth
 from app.db import get_session
-from app.deps import Page, Principal, current_user, pagination, project_dep
+from app.deps import Page, Principal, current_user, pagination
 from app.errors import ApiError
 from app.models import (
     AlertRule,
@@ -21,7 +21,6 @@ from app.models import (
     InferenceLog,
     Model,
     ModelVersion,
-    Project,
     Runtime,
 )
 from app.schemas import (
@@ -32,7 +31,6 @@ from app.schemas import (
     InferenceLogOut,
     MetricsSummary,
     OverviewOut,
-    ProjectOut,
     RuntimeOut,
 )
 from app.serialize import dump_loaded
@@ -67,15 +65,13 @@ async def list_inferences(
     has_capture: bool | None = None,
     since_hours: int = Query(24, ge=1, le=24 * 400),
     page: Page = Depends(pagination),
-    project: Project = Depends(project_dep),
     principal: Principal = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[InferenceLogOut]:
     """R5.6 - the explorer's filter surface."""
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     since = datetime.now(UTC) - timedelta(hours=since_hours)
-    stmt = sa.select(InferenceLog).where(InferenceLog.project_id == project.id,
-                                         InferenceLog.created_at >= since)
+    stmt = sa.select(InferenceLog).where(InferenceLog.created_at >= since)
     if model_id:
         stmt = stmt.where(InferenceLog.model_id == model_id)
     if version_id:
@@ -121,12 +117,12 @@ async def list_inferences(
 
 
 @router.get("/inferences/{log_id}", response_model=InferenceLogDetail)
-async def inference_detail(log_id: str, project: Project = Depends(project_dep),
+async def inference_detail(log_id: str,
                            principal: Principal = Depends(current_user),
                            session: AsyncSession = Depends(get_session)) -> InferenceLogDetail:
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     row = await session.get(InferenceLog, log_id)
-    if row is None or row.project_id != project.id:
+    if row is None:
         raise ApiError("not_found", "no such inference record")
 
     capture = row.capture or {}
@@ -147,26 +143,25 @@ async def inference_detail(log_id: str, project: Project = Depends(project_dep),
 
 @router.post("/inferences/{log_id}/flag", response_model=InferenceLogOut)
 async def flag_inference(log_id: str, body: FlagIn, request: Request,
-                         project: Project = Depends(project_dep),
                          principal: Principal = Depends(current_user),
                          session: AsyncSession = Depends(get_session)) -> InferenceLogOut:
     """R5.10 - flagging feeds the retraining export."""
-    principal.require(project.id, "developer")
+    principal.require("developer")
     row = await session.get(InferenceLog, log_id)
-    if row is None or row.project_id != project.id:
+    if row is None:
         raise ApiError("not_found", "no such inference record")
     if body.flagged and not (row.capture or {}).get("images"):
         raise ApiError(
             "conflict",
             "this request was not captured, so there is no image to retrain on - raise the "
-            "capture sample rate for this project",
+            "capture sample rate in Settings",
         )
     row.flagged = body.flagged
     row.flag_label = body.label
     row.flag_note = body.note
     row.flagged_by = principal.id
-    await audit.record(session, action="prediction.flag", project_id=project.id,
-                       actor_id=principal.id, actor_label=principal.label,
+    await audit.record(session, action="prediction.flag", actor_id=principal.id,
+                       actor_label=principal.label,
                        target_type="inference", target_id=row.id, target_label=row.request_id,
                        payload={"flagged": body.flagged, "label": body.label},
                        client_ip=request.client.host if request.client else None)
@@ -179,14 +174,12 @@ async def metrics_summary(
     window_minutes: int = Query(1440, ge=5, le=60 * 24 * 90),
     model_id: str | None = None,
     version_id: str | None = None,
-    project: Project = Depends(project_dep),
     principal: Principal = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MetricsSummary:
     """R5.4 - the numbers behind the dashboard, per model and version."""
-    principal.require(project.id, "viewer")
-    data = await analytics.summary(session, project_id=project.id,
-                                   window_minutes=window_minutes, model_id=model_id,
+    principal.require("viewer")
+    data = await analytics.summary(session, window_minutes=window_minutes, model_id=model_id,
                                    version_id=version_id)
     return MetricsSummary.model_validate(data)
 
@@ -194,27 +187,23 @@ async def metrics_summary(
 @router.get("/metrics/errors")
 async def error_breakdown(since_hours: int = Query(24, ge=1, le=24 * 90),
                           model_id: str | None = None,
-                          project: Project = Depends(project_dep),
                           principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> list[dict]:
-    principal.require(project.id, "viewer")
-    return await analytics.error_breakdown(session, project_id=project.id,
-                                           since_hours=since_hours, model_id=model_id)
+    principal.require("viewer")
+    return await analytics.error_breakdown(session, since_hours=since_hours, model_id=model_id)
 
 
 @router.get("/drift/{version_id}", response_model=DriftOut)
 async def drift(version_id: str, windows: int = Query(48, ge=2, le=720),
-                project: Project = Depends(project_dep),
                 principal: Principal = Depends(current_user),
                 session: AsyncSession = Depends(get_session)) -> DriftOut:
     """R5.9 - confidence, class mix and input statistics against the baseline window."""
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
     rows = list(
         (
             await session.execute(
                 sa.select(DriftWindow)
-                .where(DriftWindow.version_id == version_id,
-                       DriftWindow.project_id == project.id)
+                .where(DriftWindow.version_id == version_id)
                 .order_by(DriftWindow.window_start.desc()).limit(windows)
             )
         ).scalars().all()
@@ -225,7 +214,6 @@ async def drift(version_id: str, windows: int = Query(48, ge=2, le=720),
             await session.execute(
                 sa.select(DriftWindow)
                 .where(DriftWindow.version_id == version_id,
-                       DriftWindow.project_id == project.id,
                        DriftWindow.is_baseline.is_(True))
                 .order_by(DriftWindow.window_start.desc()).limit(1)
             )
@@ -253,17 +241,15 @@ async def drift(version_id: str, windows: int = Query(48, ge=2, le=720),
 
 @router.post("/drift/{version_id}/baseline")
 async def set_baseline(version_id: str, window_start: datetime | None = None,
-                       project: Project = Depends(project_dep),
                        principal: Principal = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> dict:
-    principal.require(project.id, "developer")
+    principal.require("developer")
     await session.execute(
         sa.update(DriftWindow)
-        .where(DriftWindow.version_id == version_id, DriftWindow.project_id == project.id)
+        .where(DriftWindow.version_id == version_id)
         .values(is_baseline=False)
     )
-    stmt = sa.select(DriftWindow).where(DriftWindow.version_id == version_id,
-                                        DriftWindow.project_id == project.id)
+    stmt = sa.select(DriftWindow).where(DriftWindow.version_id == version_id)
     if window_start:
         stmt = stmt.where(DriftWindow.window_start == window_start)
     target = (
@@ -277,30 +263,27 @@ async def set_baseline(version_id: str, window_start: datetime | None = None,
 
 
 @router.get("/overview", response_model=OverviewOut)
-async def overview(project: Project = Depends(project_dep),
-                   principal: Principal = Depends(current_user),
+async def overview(principal: Principal = Depends(current_user),
                    session: AsyncSession = Depends(get_session)) -> OverviewOut:
     """What the home screen shows: fleet health, traffic, and what is on fire."""
-    principal.require(project.id, "viewer")
+    principal.require("viewer")
 
     models = (
         await session.execute(
             sa.select(sa.func.count()).select_from(Model)
-            .where(Model.project_id == project.id, Model.archived_at.is_(None))
+            .where(Model.archived_at.is_(None))
         )
     ).scalar_one()
     versions = (
         await session.execute(
             sa.select(sa.func.count()).select_from(ModelVersion)
             .join(Model, Model.id == ModelVersion.model_id)
-            .where(Model.project_id == project.id)
         )
     ).scalar_one()
     deployments = list(
         (
             await session.execute(
-                sa.select(Deployment).where(Deployment.project_id == project.id,
-                                            Deployment.status != "stopped")
+                sa.select(Deployment).where(Deployment.status != "stopped")
             )
         ).scalars().all()
     )
@@ -333,25 +316,21 @@ async def overview(project: Project = Depends(project_dep),
         for r in runtime_rows
     ]
 
-    metrics = await analytics.summary(session, project_id=project.id, window_minutes=1440)
+    metrics = await analytics.summary(session, window_minutes=1440)
     recent = (
         await session.execute(
             sa.select(InferenceLog)
-            .where(InferenceLog.project_id == project.id, InferenceLog.status != "ok")
+            .where(InferenceLog.status != "ok")
             .order_by(InferenceLog.created_at.desc()).limit(10)
         )
     ).scalars().all()
     firing = (
         await session.execute(
-            sa.select(AlertRule).where(AlertRule.project_id == project.id,
-                                       AlertRule.state == "firing")
+            sa.select(AlertRule).where(AlertRule.state == "firing")
         )
     ).scalars().all()
 
     return OverviewOut(
-        project=ProjectOut.model_validate(
-            dump_loaded(project, model_count=int(models), role=principal.roles.get(project.id))
-        ),
         models=int(models), versions=int(versions), deployments=len(deployments),
         replicas_ready=ready,
         replicas_desired=sum(d.replicas for d in deployments),

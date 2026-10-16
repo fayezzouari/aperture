@@ -20,7 +20,6 @@ class WorkflowRun(Base):
     workflow_id: Mapped[str] = mapped_column(
         sa.ForeignKey("workflows.id", ondelete="CASCADE"), index=True
     )
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     request_id: Mapped[str] = mapped_column(sa.String(64), index=True)
     trace_id: Mapped[str | None] = mapped_column(sa.String(64))
     revision: Mapped[int] = mapped_column(sa.Integer, default=0)

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import storage
-from app.models import InferenceLog, Project
+from app.models import InferenceLog
 from app.services import analytics
 from app.settings import settings
 
@@ -25,23 +25,21 @@ TITLES = {
 }
 
 
-async def build(session: AsyncSession, *, project: Project, kind: str, group_by: str,
+async def build(session: AsyncSession, *, kind: str, group_by: str,
                 since_hours: int, model_id: str | None = None) -> dict:
     since = datetime.now(UTC) - timedelta(hours=since_hours)
     generated = datetime.now(UTC)
 
     if kind == "usage":
-        rows = await analytics.usage_rows(session, project_id=project.id,
-                                          since_hours=since_hours, group_by=group_by,
+        rows = await analytics.usage_rows(session, since_hours=since_hours, group_by=group_by,
                                           model_id=model_id)
         columns = ["label", "requests", "images", "errors", "error_rate", "p95_ms", "avg_ms"]
     elif kind == "errors":
-        rows = await analytics.error_breakdown(session, project_id=project.id,
-                                               since_hours=since_hours, model_id=model_id)
+        rows = await analytics.error_breakdown(session, since_hours=since_hours, model_id=model_id)
         columns = ["error_code", "count", "last_seen", "sample_message"]
     elif kind == "latency":
-        summary = await analytics.summary(session, project_id=project.id,
-                                          window_minutes=since_hours * 60, model_id=model_id)
+        summary = await analytics.summary(session, window_minutes=since_hours * 60,
+                                          model_id=model_id)
         rows = [
             {"bucket": point["ts"], "requests": point["requests"], "errors": point["errors"],
              "p50_ms": point["p50_ms"], "p95_ms": point["p95_ms"], "p99_ms": point["p99_ms"]}
@@ -52,7 +50,7 @@ async def build(session: AsyncSession, *, project: Project, kind: str, group_by:
         result = (
             await session.execute(
                 sa.select(InferenceLog)
-                .where(InferenceLog.project_id == project.id, InferenceLog.flagged.is_(True),
+                .where(InferenceLog.flagged.is_(True),
                        InferenceLog.created_at >= since)
                 .order_by(InferenceLog.created_at.desc()).limit(5000)
             )
@@ -70,7 +68,7 @@ async def build(session: AsyncSession, *, project: Project, kind: str, group_by:
     return {
         "kind": kind,
         "title": TITLES.get(kind, kind),
-        "project": project.slug,
+        "instance": settings.instance_name,
         "group_by": group_by,
         "since": since.isoformat(),
         "generated_at": generated.isoformat(),
@@ -112,10 +110,10 @@ def to_pdf(report: dict) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), leftMargin=14 * mm,
                             rightMargin=14 * mm, topMargin=14 * mm, bottomMargin=14 * mm,
-                            title=f"Aperture {report['title']} - {report['project']}")
+                            title=f"Aperture {report['title']} - {report['instance']}")
     styles = getSampleStyleSheet()
     story = [
-        Paragraph(f"{report['title']} - {report['project']}", styles["Title"]),
+        Paragraph(f"{report['title']} - {report['instance']}", styles["Title"]),
         Paragraph(
             f"Window: last {report['window_hours']} h &nbsp;·&nbsp; grouped by "
             f"{report['group_by']} &nbsp;·&nbsp; generated {report['generated_at']}",
@@ -164,10 +162,10 @@ def _fmt(value) -> str:
     return text if len(text) <= 80 else text[:77] + "..."
 
 
-async def store_artifact(report: dict, fmt: str, project_slug: str) -> str:
+async def store_artifact(report: dict, fmt: str) -> str:
     data = to_pdf(report) if fmt == "pdf" else to_csv(report)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    key = f"{project_slug}/reports/{report['kind']}-{stamp}.{fmt}"
+    key = f"reports/{report['kind']}-{stamp}.{fmt}"
     await storage.put_bytes(
         settings.s3_bucket_reports, key, data,
         content_type="application/pdf" if fmt == "pdf" else "text/csv",

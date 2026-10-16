@@ -16,7 +16,6 @@ class Job(Base, TimestampMixin):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     kind: Mapped[str] = mapped_column(sa.String(48), index=True)
     status: Mapped[str] = mapped_column(sa.String(24), default="queued", index=True)
     # queued -> running -> succeeded | failed | cancelled

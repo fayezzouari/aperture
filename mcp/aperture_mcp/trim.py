@@ -26,8 +26,8 @@ def page(items: list[Any], limit: int, offset: int) -> dict[str, Any]:
 # ------------------------------------------------------------------ registry
 
 
-def project_row(row: dict) -> dict:
-    return pick(row, "slug", "name", "description", "model_count", "role")
+def user_row(row: dict) -> dict:
+    return pick(row, "id", "email", "name", "provider", "role", "is_active", "last_login_at")
 
 
 def model_row(row: dict) -> dict:
@@ -126,7 +126,6 @@ def metrics_summary(row: dict, include_series: bool) -> dict:
 
 def overview(row: dict) -> dict:
     return {
-        "project": project_row(row.get("project") or {}),
         **pick(row, "models", "versions", "deployments", "replicas_ready", "replicas_desired",
                "log_stream_depth"),
         "metrics": metrics_summary(row.get("metrics") or {}, include_series=False),

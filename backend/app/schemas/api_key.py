@@ -1,4 +1,4 @@
-"""Project API keys."""
+"""Instance API keys."""
 
 from __future__ import annotations
 

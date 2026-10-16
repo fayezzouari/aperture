@@ -21,12 +21,9 @@ class Workflow(Base, TimestampMixin):
     """
 
     __tablename__ = "workflows"
-    __table_args__ = (sa.UniqueConstraint("project_id", "slug", name="uq_workflow_project_slug"),)
+    __table_args__ = (sa.UniqueConstraint("slug", name="uq_workflow_slug"),)
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(
-        sa.ForeignKey("projects.id", ondelete="CASCADE"), index=True
-    )
     slug: Mapped[str] = mapped_column(sa.String(96), nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.String(160), nullable=False)
     description: Mapped[str] = mapped_column(sa.Text, default="")
