@@ -6,7 +6,7 @@ import { shots, type ShotKey } from "../components/Shot";
 type Page = { key: ShotKey; title: string; subtitle: string; alt: string };
 
 const pages: Page[] = [
-  { key: "models", title: "Models", subtitle: "Every model in the project, what is live and how it is behaving. Import from Roboflow or upload weights.", alt: "The Models page: a table of models with task, tags, live version, replicas, requests, errors and p95." },
+  { key: "models", title: "Models", subtitle: "Every model on the instance, what is live and how it is behaving. Import from Roboflow or upload weights.", alt: "The Models page: a table of models with task, tags, live version, replicas, requests, errors and p95." },
   { key: "modelDetail", title: "Versions", subtitle: "Published weights are immutable. Convert a state_dict to ONNX, validate on a reference image, publish, deploy.", alt: "A model's versions: a converted ONNX draft and the imported PyTorch weights with a Convert to ONNX action." },
   { key: "workflows", title: "Workflows", subtitle: "Chain several models into one endpoint so products call one URL instead of re-implementing the pipeline.", alt: "The Workflows page: published and draft workflows with the models they chain, plus a curl example." },
   { key: "jobs", title: "Jobs", subtitle: "Long work runs here, never on the inference path: conversion, imports, bulk folders, video, exports.", alt: "The Jobs page: conversion and import jobs with status, result notes and duration." },
