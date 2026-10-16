@@ -26,28 +26,28 @@ import json
 import logging
 
 import sqlalchemy as sa
+from aperture_core.formats import to_roboflow
+from aperture_core.results import ImageResult
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aperture_core.formats import to_roboflow
-from aperture_core.results import ImageResult
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404, principal_for_key, resolve_project
+from app.deps import Principal, current_user, get_model_or_404, principal_for_key
 from app.errors import ApiError
 from app.models import Workflow
 from app.security import key_allows_model
-from app.services.workflow import WorkflowEngine
 from app.services.gateway import (
     InputImage,
     Stopwatch,
+    _guard_size,
     build_runtime_payload,
     call_runtime,
     new_request_id,
     pick_replica,
     resolve_target,
     sanitise_overrides,
-    _guard_size,
 )
+from app.services.workflow import WorkflowEngine
 from app.settings import settings
 
 log = logging.getLogger("aperture.compat.roboflow")
@@ -121,7 +121,7 @@ def _recipe(workflow_id: str) -> dict:
     )
 
 
-async def _published_workflow(session: AsyncSession, project_id: str, workflow_id: str):
+async def _published_workflow(session: AsyncSession, workflow_id: str):
     """A real Aperture workflow standing in for this Roboflow workflow, if there is one.
 
     Matched the same way as a recipe - by prefix - so `cells-detection-staging`
@@ -129,11 +129,7 @@ async def _published_workflow(session: AsyncSession, project_id: str, workflow_i
     built-in recipe, so the graph someone can see and edit in the UI is the one
     that actually serves, rather than a second definition hidden in this file.
     """
-    rows = (
-        await session.execute(
-            sa.select(Workflow).where(Workflow.project_id == project_id)
-        )
-    ).scalars().all()
+    rows = (await session.execute(sa.select(Workflow))).scalars().all()
     matches = [w for w in rows if workflow_id.startswith(w.slug) and w.published_graph]
     if not matches:
         return None
@@ -193,10 +189,10 @@ def _selected(recipe: dict, inputs: dict) -> dict[str, str]:
 
 
 async def _run_one(request: Request, session: AsyncSession, principal: Principal,
-                   project, slug: str, ref: str, image: InputImage,
+                   slug: str, ref: str, image: InputImage,
                    request_id: str, overrides: dict | None = None) -> dict:
     """One model's answer, already in Roboflow's per-block shape."""
-    model_row = await get_model_or_404(session, project.id, slug)
+    model_row = await get_model_or_404(session, slug)
 
     if principal.kind == "api_key" and principal.api_key is not None:
         if not key_allows_model(principal.api_key, model_row.id, model_row.slug):
@@ -268,7 +264,6 @@ async def run_workflow(
         principal = await principal_for_key(request, session, str(raw_key))
     else:
         principal = await current_user(request, session)
-    project = await resolve_project(request, principal, session)
 
     inputs = body.get("inputs")
     if not isinstance(inputs, dict):
@@ -281,10 +276,10 @@ async def run_workflow(
     # A workflow someone built in Aperture is the better answer than the recipe
     # baked into this module: it is visible, editable and version-tracked. The
     # recipe stays as the fallback for instances that never defined one.
-    managed = await _published_workflow(session, project.id, workflow_id)
+    managed = await _published_workflow(session, workflow_id)
     if managed is not None:
         params = {k: v for k, v in inputs.items() if k != "image"}
-        engine = WorkflowEngine(session, project, request_id=request_id,
+        engine = WorkflowEngine(session, request_id=request_id,
                                 response_format="roboflow", params=params,
                                 api_key=principal.api_key)
         result = await engine.run(managed.published_graph, [image])
@@ -313,7 +308,7 @@ async def run_workflow(
     for key, spec in selected.items():
         slug, _, pinned = spec.partition("@")
         outputs[key] = await _run_one(
-            request, session, principal, project, slug, pinned or default_ref, image,
+            request, session, principal, slug, pinned or default_ref, image,
             f"{request_id}-{key}", (recipe.get("overrides") or {}).get(key),
         )
 
