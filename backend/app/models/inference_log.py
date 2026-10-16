@@ -16,7 +16,6 @@ class InferenceLog(Base):
     __tablename__ = "inference_logs"
     __table_args__ = (
         sa.Index("ix_inflog_model_created", "model_id", "created_at"),
-        sa.Index("ix_inflog_project_created", "project_id", "created_at"),
         sa.Index("ix_inflog_status_created", "status", "created_at"),
         sa.Index("ix_inflog_version_created", "version_id", "created_at"),
     )
@@ -26,7 +25,6 @@ class InferenceLog(Base):
     trace_id: Mapped[str | None] = mapped_column(sa.String(64), index=True)
     span_id: Mapped[str | None] = mapped_column(sa.String(32))
 
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     model_id: Mapped[str | None] = mapped_column(sa.String(36))
     version_id: Mapped[str | None] = mapped_column(sa.String(36))
     model_slug: Mapped[str] = mapped_column(sa.String(96), default="")
