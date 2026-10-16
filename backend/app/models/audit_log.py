@@ -14,10 +14,8 @@ class AuditLog(Base):
     """R7.4 - append-only record of every mutating action."""
 
     __tablename__ = "audit_logs"
-    __table_args__ = (sa.Index("ix_audit_project_created", "project_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str | None] = mapped_column(sa.String(36), index=True)
     actor_type: Mapped[str] = mapped_column(sa.String(16), default="user")
     actor_id: Mapped[str | None] = mapped_column(sa.String(36))
     actor_label: Mapped[str] = mapped_column(sa.String(200), default="")
