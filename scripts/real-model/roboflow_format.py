@@ -28,8 +28,7 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
 client = httpx.Client(base_url=BASE, timeout=300.0)
 login = client.post("/v1/auth/login", json={"email": "admin@localhost", "password": "aperture"})
 login.raise_for_status()
-client.headers.update({"authorization": f"Bearer {login.json()['access_token']}",
-                       "x-aperture-project": "default"})
+client.headers.update({"authorization": f"Bearer {login.json()['access_token']}"})
 
 image = (TEST_DIR / "cls-test1.jpeg").read_bytes()
 
