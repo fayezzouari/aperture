@@ -1,8 +1,8 @@
-"""Request-scoped dependencies: who is calling, for which project, with what rights."""
+"""Request-scoped dependencies: who is calling, and with what rights."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
@@ -14,19 +14,16 @@ from app.cache import check_quota, check_rate_limit
 from app.db import get_session
 from app.errors import ApiError
 from app.metrics import rejected_total
-from app.models import ApiKey, Model, PersonalAccessToken, Project, User
+from app.models import ApiKey, Model, PersonalAccessToken, User
 from app.security import (
     aware_utc,
     decode_token,
     is_pat,
-    load_memberships,
     require_role,
     resolve_api_key,
     resolve_pat,
 )
 from app.settings import settings
-
-PROJECT_HEADER = "x-aperture-project"
 
 
 @dataclass
@@ -34,10 +31,8 @@ class Principal:
     kind: str  # "user" | "api_key"
     id: str
     label: str
-    roles: dict[str, str] = field(default_factory=dict)
-    is_superadmin: bool = False
+    role: str | None = None  # the instance role; None for an API key
     api_key: ApiKey | None = None
-    project_id: str | None = None
     token: PersonalAccessToken | None = None  # set when a personal access token signed in
 
     @property
@@ -47,19 +42,15 @@ class Principal:
             return "api_key"
         return "user:token" if self.token is not None else "user"
 
-    def require(self, project_id: str, minimum: str) -> None:
+    @property
+    def is_admin(self) -> bool:
+        return self.kind == "user" and self.role == "admin"
+
+    def require(self, minimum: str) -> None:
         if self.kind == "api_key":
             # keys never touch the control plane; routes that need a role never accept one
             raise ApiError("forbidden", "this endpoint requires a signed-in user")
-        require_role(self.roles, project_id, minimum, superadmin=self.is_superadmin)
-
-    def readable_projects(self) -> list[str] | None:
-        """None means 'all projects' (superadmin)."""
-        if self.is_superadmin:
-            return None
-        if self.kind == "api_key" and self.project_id:
-            return [self.project_id]
-        return list(self.roles)
+        require_role(self.role, minimum)
 
 
 def _bearer(request: Request) -> str | None:
@@ -83,9 +74,8 @@ async def current_user(
     user = await session.get(User, claims["sub"])
     if user is None or not user.is_active:
         raise ApiError("unauthenticated", "this account is no longer active")
-    roles = await load_memberships(session, user.id)
-    return Principal(kind="user", id=user.id, label=user.email, roles=roles,
-                     is_superadmin=user.is_superadmin)
+    # the role is read from the row, not the token, so a role change applies at once
+    return Principal(kind="user", id=user.id, label=user.email, role=user.role)
 
 
 PAT_LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -94,13 +84,10 @@ PAT_LAST_USED_GRANULARITY = timedelta(minutes=1)
 async def principal_for_token(session: AsyncSession, raw: str) -> Principal:
     """A personal access token is the user who issued it, with that user's roles today.
 
-    Roles are loaded on every call rather than frozen into the token, so a role
-    change or a removed membership takes effect on the next request - the JWT
-    path only re-reads them at login, which is fine for a 12-hour session and not
-    for a credential that lives for months.
+    The role is read from the user row on every call rather than frozen into the
+    token, so a role change or a deactivation takes effect on the next request.
     """
     token, user = await resolve_pat(session, raw)
-    roles = await load_memberships(session, user.id)
     # last_used_at is bookkeeping: written at most once a minute per token, and a
     # failure to write it must never fail the request it rides on.
     now = datetime.now(UTC)
@@ -113,8 +100,7 @@ async def principal_for_token(session: AsyncSession, raw: str) -> Principal:
         )
         await session.commit()
     audit.actor_type_var.set("user:token")
-    return Principal(kind="user", id=user.id, label=user.email, roles=roles,
-                     is_superadmin=user.is_superadmin, token=token)
+    return Principal(kind="user", id=user.id, label=user.email, role=user.role, token=token)
 
 
 async def optional_user(
@@ -174,59 +160,14 @@ async def principal_for_key(
         sa.update(ApiKey).where(ApiKey.id == key.id).values(last_used_at=datetime.now(UTC))
     )
     await session.commit()
-    return Principal(kind="api_key", id=key.id, label=key.name, api_key=key,
-                     project_id=key.project_id)
+    return Principal(kind="api_key", id=key.id, label=key.name, api_key=key)
 
 
-async def resolve_project(
-    request: Request,
-    principal: Principal,
-    session: AsyncSession,
-    project: str | None = None,
-) -> Project:
-    """Project comes from the API key, an explicit slug, or the X-Aperture-Project header."""
-    if principal.kind == "api_key" and principal.project_id:
-        found = await session.get(Project, principal.project_id)
-        if found is None:
-            raise ApiError("not_found", "the project for this API key no longer exists")
-        return found
-
-    slug = project or request.headers.get(PROJECT_HEADER)
-    if slug:
-        found = (
-            await session.execute(sa.select(Project).where(Project.slug == slug))
-        ).scalar_one_or_none()
-        if found is None:
-            raise ApiError("not_found", f"no project with slug '{slug}'")
-        # a slug is a request, not a grant: the caller still has to belong to it
-        principal.require(found.id, "viewer")
-        return found
-
-    readable = principal.readable_projects()
-    stmt = sa.select(Project).where(Project.archived_at.is_(None)).order_by(Project.created_at)
-    if readable is not None:
-        stmt = stmt.where(Project.id.in_(readable))
-    found = (await session.execute(stmt.limit(1))).scalar_one_or_none()
-    if found is None:
-        raise ApiError("not_found", "you do not have access to any project yet")
-    return found
-
-
-async def project_dep(
-    request: Request,
-    project: str | None = Query(None, description="project slug; defaults to the X-Aperture-Project header"),
-    principal: Principal = Depends(current_user),
-    session: AsyncSession = Depends(get_session),
-) -> Project:
-    return await resolve_project(request, principal, session, project)
-
-
-async def get_model_or_404(session: AsyncSession, project_id: str, ref: str) -> Model:
-    stmt = sa.select(Model).where(Model.project_id == project_id)
-    stmt = stmt.where(sa.or_(Model.slug == ref, Model.id == ref))
+async def get_model_or_404(session: AsyncSession, ref: str) -> Model:
+    stmt = sa.select(Model).where(sa.or_(Model.slug == ref, Model.id == ref))
     found = (await session.execute(stmt)).scalar_one_or_none()
     if found is None:
-        raise ApiError("model_not_found", f"no model '{ref}' in this project")
+        raise ApiError("model_not_found", f"no model '{ref}'")
     return found
 
 
