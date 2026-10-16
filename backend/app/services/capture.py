@@ -12,37 +12,77 @@ import base64
 import json
 import logging
 import random
+import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import storage
 from app.cache import publish_log
+from app.models import InstanceSettings
 from app.settings import settings
 
 log = logging.getLogger("aperture.capture")
 
 
-def should_capture(*, project_rate: float | None, forced: bool | None, is_error: bool) -> bool:
+@dataclass(frozen=True)
+class CapturePolicy:
+    """The instance's overrides of the AP_CAPTURE_* defaults; None means 'use the default'."""
+
+    sample_rate: float | None = None
+    retention_days: int | None = None
+
+
+POLICY_TTL_S = 10.0
+_policy_cache: tuple[float, CapturePolicy] | None = None
+
+
+async def load_policy(session: AsyncSession) -> CapturePolicy:
+    """Read the instance settings row, cached briefly: it is consulted on every prediction."""
+    global _policy_cache
+    now = time.monotonic()
+    if _policy_cache is not None and now - _policy_cache[0] < POLICY_TTL_S:
+        return _policy_cache[1]
+    row = await session.get(InstanceSettings, 1)
+    policy = CapturePolicy(row.capture_sample_rate, row.capture_retention_days) if row \
+        else CapturePolicy()
+    _policy_cache = (now, policy)
+    return policy
+
+
+def forget_policy() -> None:
+    """Drop the cached policy so a settings change applies on the next request."""
+    global _policy_cache
+    _policy_cache = None
+
+
+def should_capture(*, override_rate: float | None, forced: bool | None, is_error: bool) -> bool:
     if forced is not None:
         return forced
     if is_error and settings.capture_errors_always:
         return True
-    rate = settings.capture_sample_rate if project_rate is None else project_rate
+    rate = effective_rate(override_rate)
     return rate > 0 and random.random() < rate
 
 
-def retention_days(project_days: int | None) -> int:
-    return project_days or settings.capture_retention_days
+def effective_rate(override_rate: float | None) -> float:
+    return settings.capture_sample_rate if override_rate is None else override_rate
+
+
+def retention_days(override_days: int | None) -> int:
+    return override_days or settings.capture_retention_days
 
 
 async def store_payloads(
-    *, project_slug: str, model_slug: str, request_id: str,
+    *, model_slug: str, request_id: str,
     images: list[tuple[bytes, str]], overlays: list[str],
 ) -> dict:
     """Upload the request's images (and any overlay) and return their keys."""
     stored: dict = {"images": [], "overlays": [], "bucket": settings.s3_bucket_captures}
     for index, (data, name) in enumerate(images):
         ext = _extension(name, data)
-        key = storage.capture_key(project_slug, model_slug, request_id, index, ext)
+        key = storage.capture_key(model_slug, request_id, index, ext)
         try:
             await storage.put_bytes(settings.s3_bucket_captures, key, data,
                                     content_type=f"image/{'jpeg' if ext == 'jpg' else ext}")
@@ -55,7 +95,7 @@ async def store_payloads(
             data = base64.b64decode(overlay_b64)
         except Exception:
             continue
-        key = storage.capture_key(project_slug, model_slug, request_id, index, "overlay.png")
+        key = storage.capture_key(model_slug, request_id, index, "overlay.png")
         try:
             await storage.put_bytes(settings.s3_bucket_captures, key, data, content_type="image/png")
             stored["overlays"].append({"key": key})
@@ -115,8 +155,8 @@ def truncate_output(results: list[dict], limit: int | None = None) -> dict:
 
 
 def build_record(
-    *, request_id: str, trace_id: str | None, span_id: str | None, project_id: str,
-    project_slug: str, model, version, tag: str | None, route: str, principal_kind: str,
+    *, request_id: str, trace_id: str | None, span_id: str | None, model, version,
+    tag: str | None, route: str, principal_kind: str,
     principal_id: str, principal_label: str, client_ip: str | None, status: str,
     http_status: int, error_code: str | None, error_message: str | None, batch_size: int,
     latency: dict, runtime_id: str | None, input_ref: dict, input_stats: dict,
@@ -127,8 +167,6 @@ def build_record(
         "request_id": request_id,
         "trace_id": trace_id,
         "span_id": span_id,
-        "project_id": project_id,
-        "project_slug": project_slug,
         "model_id": getattr(model, "id", None),
         "model_slug": getattr(model, "slug", ""),
         "version_id": getattr(version, "id", None),
