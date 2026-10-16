@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useProjects, useRole } from "../lib/hooks";
+import { can, useRole } from "../lib/hooks";
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Panel, PanelHeader, Spinner, Status, useToast } from "../components/ui";
 
 type Rule = {
@@ -35,9 +35,7 @@ const METRICS: { value: string; label: string; hint: string; unit: string }[] = 
 export default function Alerts() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const projects = useProjects();
-  const projectId = projects.data?.find((project) => project.slug === localStorage.getItem("aperture.project"))?.id;
-  const role = useRole(projectId);
+  const role = useRole();
   const [creating, setCreating] = useState(false);
 
   const rules = useQuery<Rule[]>({ queryKey: ["alerts"], queryFn: () => api("/v1/alerts"), refetchInterval: 30_000 });
@@ -234,7 +232,7 @@ function CreateRule({ open, onClose, onCreated }: { open: boolean; onClose: () =
         </div>
         <Field label="Scope">
           <select className="select" value={form.model_id ?? ""} onChange={(event) => setForm({ ...form, model_id: event.target.value || null })}>
-            <option value="">Every model in the project</option>
+            <option value="">Every model</option>
             {(models.data ?? []).map((model) => (
               <option key={model.id} value={model.id}>
                 {model.slug}
