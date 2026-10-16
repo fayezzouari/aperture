@@ -48,6 +48,7 @@ from app.services.gateway import (
     resolve_target,
     sanitise_overrides,
 )
+from app.services.versioning import next_version_number
 from app.settings import settings
 
 log = logging.getLogger("aperture.jobs")
@@ -254,14 +255,7 @@ async def convert_version(ctx: dict, job_id: str) -> dict:
                 with open(produced, "rb") as fh:
                     data = fh.read()
 
-            number = int(
-                (
-                    await session.execute(
-                        sa.select(sa.func.max(ModelVersion.version))
-                        .where(ModelVersion.model_id == model.id)
-                    )
-                ).scalar_one() or 0
-            ) + 1
+            number = await next_version_number(session, model.id)  # locks the model until commit
             filename = os.path.basename(produced)
             key = storage.weights_key(model.slug, number, filename)
             info = await storage.put_bytes(settings.s3_bucket_weights, key, data)
@@ -1135,14 +1129,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                     data = fh.read()
                 artifact = inspect_artifact(weights, filename=filename)
 
-            number = int(
-                (
-                    await session.execute(
-                        sa.select(sa.func.max(ModelVersion.version))
-                        .where(ModelVersion.model_id == model.id)
-                    )
-                ).scalar_one() or 0
-            ) + 1
+            number = await next_version_number(session, model.id)  # locks the model until commit
             key = storage.weights_key(model.slug, number, filename)
             info = await storage.put_bytes(settings.s3_bucket_weights, key, data)
 
