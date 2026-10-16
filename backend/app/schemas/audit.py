@@ -9,7 +9,6 @@ from app.schemas.common import ORMModel
 
 class AuditOut(ORMModel):
     id: str
-    project_id: str | None
     actor_type: str
     actor_id: str | None
     actor_label: str
