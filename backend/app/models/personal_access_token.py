@@ -14,7 +14,7 @@ class PersonalAccessToken(Base, TimestampMixin):
     """R8.1 - a long-lived credential that *is* the user.
 
     Issued for agents and scripts that outlive a browser session. It carries no
-    scopes and no rate limit: it inherits the owner's project roles, and the
+    scopes and no rate limit: it inherits the owner's role, and the
     owner can revoke it at any time. Like an API key it is stored only as a hash.
     """
 
