@@ -87,6 +87,8 @@ class ControlPlane:
                 "formats": self.formats,
                 "loaded_count": len(loaded),
                 "infer_workers": settings.infer_workers,
+                # host memory, for placement; total/free_memory_mb above are the GPU's
+                "memory": self.store.memory(),
             },
         }
         response = await self._client.post("/internal/v1/heartbeat", json=payload)
