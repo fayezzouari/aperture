@@ -1,8 +1,8 @@
 """R8.1 - personal access tokens: a user's own long-lived credential for agents and scripts.
 
-A token is the user. It inherits the owner's project roles at request time, is
+A token is the user. It inherits the owner's role at request time, is
 stored only as a hash, is shown exactly once, and can be revoked by its owner.
-Everything here is self-service: no project, no role check beyond "signed in".
+Everything here is self-service: no role check beyond "signed in".
 """
 
 from __future__ import annotations
@@ -53,8 +53,8 @@ async def create_token(body: TokenIn, request: Request,
     )
     session.add(token)
     await session.flush()
-    await audit.record(session, action="token.create", project_id=None,
-                       actor_id=principal.id, actor_label=principal.label, target_type="token",
+    await audit.record(session, action="token.create", actor_id=principal.id,
+                       actor_label=principal.label, target_type="token",
                        target_id=token.id, target_label=token.name,
                        payload={"prefix": prefix,
                                 "expires_at": token.expires_at.isoformat()
@@ -74,8 +74,8 @@ async def revoke_token(token_id: str, request: Request,
         raise ApiError("not_found", "no such token")
     if token.revoked_at is None:
         token.revoked_at = sa.func.now()
-        await audit.record(session, action="token.revoke", project_id=None,
-                           actor_id=principal.id, actor_label=principal.label,
+        await audit.record(session, action="token.revoke", actor_id=principal.id,
+                           actor_label=principal.label,
                            target_type="token", target_id=token.id, target_label=token.name,
                            payload={"prefix": token.prefix}, client_ip=_ip(request))
         await session.commit()
