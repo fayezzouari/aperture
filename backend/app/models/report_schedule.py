@@ -16,7 +16,6 @@ class ReportSchedule(Base, TimestampMixin):
     __tablename__ = "report_schedules"
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     name: Mapped[str] = mapped_column(sa.String(160))
     kind: Mapped[str] = mapped_column(sa.String(32), default="usage")
     params: Mapped[dict] = mapped_column(JSON_T, default=dict)
