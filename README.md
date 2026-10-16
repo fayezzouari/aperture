@@ -17,7 +17,7 @@ preprocessing.
 git clone <this repo> && cd aperture
 cp .env.example .env          # then change the three CHANGE ME values
 make up                       # or: docker compose up -d --build
-make seed                     # optional: a demo project with traffic in it
+make seed                     # optional: demo models with traffic in them
 open http://localhost:8080    # admin@localhost / aperture
 ```
 
@@ -36,7 +36,7 @@ the same images (`cd landing && npm install && npm run dev`, or
 
 ![Overview: requests, error rate, p95 latency, replicas ready, latency over time and recent failures](docs/screenshots/overview.png)
 
-**Models** — every model in the project, what is live and how it is behaving.
+**Models** — every model on the instance, what is live and how it is behaving.
 
 ![Models: a table of models with task, tags, live version, replicas, requests, errors and p95](docs/screenshots/models.png)
 
@@ -398,7 +398,7 @@ keys or a video, then poll the job or take a webhook.
 `mcp/` is an MCP server: Aperture's API as tools, so Claude Code, Claude Desktop
 or Cursor can answer "why is part-detection erroring" and *look* at what a model
 returned. It runs on your machine over stdio, calls the same `/v1` routes the
-console calls, and is bounded by your own project roles - it holds no database
+console calls, and is bounded by your own role - it holds no database
 credentials and no bypass.
 
 An API key cannot do this: keys reach inference and nothing else. So a person
@@ -417,7 +417,6 @@ once, revocable, and unable to mint further tokens. Point an agent at it:
 claude mcp add aperture \
   -e APERTURE_URL=http://localhost:8080 \
   -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \
-  -e APERTURE_PROJECT=default \
   -- uvx --from ./mcp aperture-mcp
 ```
 
@@ -432,8 +431,7 @@ take the same thing as JSON:
       "args": ["--from", "/path/to/aperture/mcp", "aperture-mcp"],
       "env": {
         "APERTURE_URL": "http://localhost:8080",
-        "APERTURE_TOKEN": "ap_pat_xxxx.yyyy",
-        "APERTURE_PROJECT": "default"
+        "APERTURE_TOKEN": "ap_pat_xxxx.yyyy"
       }
     }
   }
@@ -586,10 +584,14 @@ UI ships no external fonts, CDNs or analytics. Pre-pull the eight images in
   once, self-service to issue and revoke, and refused when the owner is
   deactivated. A token cannot create another token, so a leaked one cannot
   outlive its own revocation.
-* **People** sign in with OIDC, LDAP or a local password, and hold a role per
-  project: `viewer` reads, `developer` uploads/validates/deploys, `admin`
-  manages keys, members and deletion.
-* **Projects** isolate models, keys, logs and quotas between teams.
+* **People** sign in with OIDC, LDAP or a local password, and hold one role on
+  the instance: `viewer` reads, `developer` uploads/validates/deploys, `admin`
+  manages keys, users, instance settings and deletion. Admins manage people
+  under **Settings → Users** or `/v1/users`.
+* **One instance, no projects.** Aperture is single-tenant: dev and prod are
+  kept apart with deployment stages and tags (`staging`, `production`), not
+  with separate projects. Old clients that still send `X-Aperture-Project` keep
+  working; the header is ignored.
 * **Custom hooks** (user-supplied pre/post-processing Python) run in a separate
   process with no filesystem or network access, a hard CPU and memory cap, and
   an import allowlist. That is hardening, not a sandbox: for hooks from

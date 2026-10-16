@@ -36,8 +36,7 @@ def check(name: str, ok: bool, detail: str = "") -> bool:
 client = httpx.Client(base_url=BASE, timeout=600.0)
 login = client.post("/v1/auth/login", json={"email": "admin@localhost", "password": "aperture"})
 login.raise_for_status()
-client.headers.update({"authorization": f"Bearer {login.json()['access_token']}",
-                       "x-aperture-project": "default"})
+client.headers.update({"authorization": f"Bearer {login.json()['access_token']}"})
 
 # tear down a previous run
 if client.get(f"/v1/models/{SLUG}").status_code == 200:

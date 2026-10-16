@@ -62,12 +62,54 @@ def main() -> int:
                  login.text[:200] if login.status_code != 200 else ""):
         return 1
     token = login.json()["access_token"]
-    client.headers.update({"authorization": f"Bearer {token}", "x-aperture-project": "default"})
+    client.headers.update({"authorization": f"Bearer {token}"})
 
     bad = client.post("/v1/auth/login", json={"email": EMAIL, "password": "wrong-password"})
     check("a wrong password is refused with a typed error",
           bad.status_code == 401 and bad.json()["error"]["code"] == "invalid_credentials",
           bad.json().get("error", {}).get("code", ""))
+
+    # ------------------------------------------------------- users and settings
+    # One instance, one set of roles: the bootstrap admin is an instance admin.
+    whoami = client.get("/v1/auth/me")
+    check("the bootstrap admin holds the instance admin role",
+          whoami.status_code == 200 and whoami.json().get("role") == "admin",
+          whoami.json().get("role", whoami.text[:80]))
+    legacy = client.get("/v1/models", headers={"x-aperture-project": "no-such-project"})
+    check("an old client's project header is ignored", legacy.status_code == 200,
+          legacy.text[:120] if legacy.status_code != 200 else "")
+
+    invited = client.put("/v1/users", json={"email": "e2e-viewer@localhost", "role": "viewer"})
+    check("invite a viewer", invited.status_code == 200 and invited.json().get("role") == "viewer",
+          invited.text[:160] if invited.status_code != 200 else "")
+    users = client.get("/v1/users")
+    roles = {u["email"]: u["role"] for u in users.json()} if users.status_code == 200 else {}
+    check("the user list shows every account with its role",
+          roles.get(EMAIL) == "admin" and roles.get("e2e-viewer@localhost") == "viewer",
+          users.text[:160] if users.status_code != 200 else "")
+    if invited.status_code == 200:
+        promoted = client.patch(f"/v1/users/{invited.json()['id']}", json={"role": "developer"})
+        check("an admin can change a user's role",
+              promoted.status_code == 200 and promoted.json().get("role") == "developer",
+              promoted.text[:160] if promoted.status_code != 200 else "")
+    self_demote = client.patch(f"/v1/users/{whoami.json().get('id')}", json={"role": "viewer"})
+    check("an admin cannot demote themselves", self_demote.status_code >= 400,
+          str(self_demote.status_code))
+
+    before = client.get("/v1/settings")
+    check("instance settings report the effective capture policy",
+          before.status_code == 200 and "effective_sample_rate" in before.json()
+          and "effective_retention_days" in before.json(),
+          before.text[:160] if before.status_code != 200 else "")
+    if before.status_code == 200:
+        original = {k: before.json()[k] for k in ("capture_sample_rate", "capture_retention_days")}
+        changed = client.patch("/v1/settings", json={"capture_sample_rate": 0.25,
+                                                     "capture_retention_days": 7})
+        check("an admin can override the capture policy",
+              changed.status_code == 200 and changed.json().get("effective_sample_rate") == 0.25
+              and changed.json().get("effective_retention_days") == 7,
+              changed.text[:160] if changed.status_code != 200 else "")
+        client.patch("/v1/settings", json=original)
 
     # ------------------------------------------------------------------- model
     # Aperture deliberately refuses to delete a model that is still serving, so
@@ -403,8 +445,7 @@ def main() -> int:
           minted.status_code == 201 and minted.json()["token"].startswith("ap_pat_"))
     pat = minted.json().get("token", "")
     as_token = httpx.Client(base_url=BASE, timeout=60.0,
-                            headers={"authorization": f"Bearer {pat}",
-                                     "x-aperture-project": "default"})
+                            headers={"authorization": f"Bearer {pat}"})
     me = as_token.get("/v1/auth/me")
     check("a token acts as the user who issued it",
           me.status_code == 200 and me.json().get("email") == EMAIL
@@ -670,7 +711,7 @@ def mcp_checks(token: str, image_path: str, captured_id: str | None) -> None:
         return
 
     async def run() -> None:
-        server = build_server(Settings(url=BASE, token=token, project="default"))
+        server = build_server(Settings(url=BASE, token=token))
         names = {tool.name for tool in await server.list_tools()}
         check("the MCP server offers read tools and predict to a token",
               {"list_models", "get_overview", "search_inferences", "predict"} <= names,
