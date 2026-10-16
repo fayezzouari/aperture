@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # code -> default HTTP status. Codes are permanent API surface: add, never rename.
@@ -75,6 +76,16 @@ def error_payload(code: str, message: str, request_id: str | None = None,
     return {"error": body}
 
 
+def _constraint_name(exc: IntegrityError) -> str | None:
+    """The violated constraint, when the driver reports one (asyncpg does, SQLite does not)."""
+    orig = getattr(exc, "orig", None)
+    for candidate in (orig, getattr(orig, "__cause__", None)):
+        name = getattr(candidate, "constraint_name", None)
+        if name:
+            return str(name)
+    return None
+
+
 def install_handlers(app) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
@@ -107,6 +118,26 @@ def install_handlers(app) -> None:
         detail = exc.detail if isinstance(exc.detail, str) else "request failed"
         return JSONResponse(status_code=exc.status_code,
                             content=error_payload(code, detail, rid))
+
+    @app.exception_handler(IntegrityError)
+    async def _integrity(request: Request, exc: IntegrityError) -> JSONResponse:
+        # A check-then-insert that lost a race to a concurrent request: the
+        # database kept the data consistent, so this is the caller's conflict to
+        # retry, not a server fault.
+        rid = getattr(request.state, "request_id", None)
+        import logging
+
+        constraint = _constraint_name(exc)
+        logging.getLogger("aperture.error").warning(
+            "integrity conflict on %s", request.url.path, extra={"constraint": constraint})
+        return JSONResponse(
+            status_code=409,
+            content=error_payload(
+                "conflict",
+                "another request changed the same record at the same time; retry the request",
+                rid, {"constraint": constraint} if constraint else None,
+            ),
+        )
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
