@@ -17,7 +17,6 @@ class Deployment(Base, TimestampMixin):
     __table_args__ = (sa.UniqueConstraint("version_id", "mode", name="uq_deploy_version_mode"),)
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
-    project_id: Mapped[str] = mapped_column(sa.String(36), index=True)
     model_id: Mapped[str] = mapped_column(
         sa.ForeignKey("models.id", ondelete="CASCADE"), index=True
     )
