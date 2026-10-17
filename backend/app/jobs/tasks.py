@@ -42,9 +42,8 @@ from app.services.deployer import autoscale, reconcile
 from app.services.gateway import (
     InputImage,
     build_runtime_payload,
-    call_runtime,
+    dispatch,
     fetch_url_image,
-    pick_replica,
     resolve_target,
     sanitise_overrides,
 )
@@ -142,15 +141,14 @@ async def run_inference_job(ctx: dict, job_id: str) -> dict:
                 chunk = items[start:start + FRAME_BATCH]
                 images = [InputImage(data=data, name=name, source="job") for name, data in chunk]
                 try:
-                    replica = await pick_replica(target.version.id, model.slug)
                     payload = build_runtime_payload(
                         target, images, request_id=f"job-{job.id}-{start}", overrides=overrides,
                         want_overlay=False, extra=None,
                         deadline_ms=target.deployment.request_timeout_ms,
                     )
-                    reply = await call_runtime(replica, payload,
-                                              timeout_ms=target.deployment.request_timeout_ms,
-                                              trace_headers={})
+                    reply = await dispatch(target.version.id, model.slug, payload,
+                                           timeout_ms=target.deployment.request_timeout_ms,
+                                           trace_headers={})
                     for offset, result in enumerate(reply.results):
                         predictions.append({"source": chunk[offset][0], **result})
                     await publish_log({
