@@ -41,9 +41,8 @@ from app.services.gateway import (
     Stopwatch,
     _guard_size,
     build_runtime_payload,
-    call_runtime,
+    dispatch,
     new_request_id,
-    pick_replica,
     resolve_target,
     sanitise_overrides,
 )
@@ -204,15 +203,15 @@ async def _run_one(request: Request, session: AsyncSession, principal: Principal
 
     watch = Stopwatch()
     _resolved, target, _shadows = await resolve_target(session, model_row, ref)
-    replica = await pick_replica(target.version.id, model_row.slug)
     payload = build_runtime_payload(
         target, [image], request_id=request_id,
         overrides=sanitise_overrides(overrides or {}),
         want_overlay=False, extra=None,
         deadline_ms=target.deployment.request_timeout_ms,
     )
-    reply = await call_runtime(
-        replica, payload, timeout_ms=target.deployment.request_timeout_ms,
+    reply = await dispatch(
+        target.version.id, model_row.slug, payload,
+        timeout_ms=target.deployment.request_timeout_ms,
         trace_headers=(
             {"traceparent": request.headers["traceparent"]}
             if "traceparent" in request.headers else {}
