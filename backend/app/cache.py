@@ -56,15 +56,50 @@ def _version_key(version_id: str) -> str:
 
 
 async def register_runtime(runtime_id: str, payload: dict, ready_versions: list[str]) -> None:
+    """Record a heartbeat: the runtime's state, and which versions it can serve right now.
+
+    A version the runtime stopped reporting as ready leaves the routing set at
+    once rather than when its score ages out. A restarted runtime comes back
+    under a new id at the same URL; the old id is dropped here, so the gateway
+    stops sending it versions the new process has not loaded yet.
+    """
     r = client()
     ttl = settings.runtime_heartbeat_ttl_s
+    ids = [i for i in await r.smembers("aperture:runtimes") if i != runtime_id]
+    previous: dict[str, dict] = {}
+    if ids:
+        for other_id, blob in zip(ids, await r.mget([_runtime_key(i) for i in ids])):
+            if blob:
+                try:
+                    previous[other_id] = json.loads(blob)
+                except json.JSONDecodeError:
+                    continue
+    own = await r.get(_runtime_key(runtime_id))
+    was_ready = set(json.loads(own).get("loaded") or []) if own else set()
+
     pipe = r.pipeline()
     pipe.set(_runtime_key(runtime_id), json.dumps(payload), ex=ttl)
     pipe.sadd("aperture:runtimes", runtime_id)
     for version_id in ready_versions:
         pipe.zadd(_version_key(version_id), {runtime_id: time.time()})
         pipe.expire(_version_key(version_id), ttl * 6)
+    for version_id in was_ready - set(ready_versions):
+        pipe.zrem(_version_key(version_id), runtime_id)
+    for other_id, data in previous.items():
+        if payload.get("url") and data.get("url") == payload.get("url"):
+            pipe.delete(_runtime_key(other_id))
+            pipe.srem("aperture:runtimes", other_id)
+            for version_id in data.get("loaded") or []:
+                pipe.zrem(_version_key(version_id), other_id)
     await pipe.execute()
+
+
+async def evict_replica(version_id: str, runtime_id: str) -> None:
+    """Stop routing a version to a runtime that said it does not hold it.
+
+    The next heartbeat puts it back if the runtime does serve it after all.
+    """
+    await client().zrem(_version_key(version_id), runtime_id)
 
 
 async def drop_runtime(runtime_id: str) -> None:
@@ -89,7 +124,8 @@ async def healthy_runtimes_for_version(version_id: str) -> list[dict]:
             data = json.loads(blob)
         except json.JSONDecodeError:
             continue
-        if data.get("status") == "ready":
+        # ready, and this version among what it reported ready - not merely assigned
+        if data.get("status") == "ready" and version_id in (data.get("loaded") or []):
             data["runtime_id"] = runtime_id
             out.append(data)
     return out
