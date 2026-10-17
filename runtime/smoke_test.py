@@ -271,6 +271,69 @@ async def main():
                         "needs_mb": admitted.needs_mb, "detail": admitted.detail}))
         rt_settings.memory_budget_mb = 0
 
+        # 20 - a burst of large images over the request headroom gets queue_full,
+        # not an OOM kill, and every reservation is handed back afterwards
+        big = Image.fromarray((np.random.default_rng(5).random((1500, 2000, 3)) * 255)
+                              .astype(np.uint8))
+        bbuf = io.BytesIO(); big.save(bbuf, format="JPEG")
+        big_b64 = base64.b64encode(bbuf.getvalue()).decode()
+        burst = Batcher(version_id="v-burst", backend=_SlowBackend(backend, 0.3),
+                        semaphore=asyncio.Semaphore(1), max_batch_size=1, max_wait_ms=0,
+                        max_queue_depth=32)
+        await burst.start()
+        store.models["v-burst"] = Loaded(version_id="v-burst", model_slug="burst", version=1,
+                                         config=cfg, backend=burst.backend, batcher=burst,
+                                         state="ready")
+        per_request = rt.request_need_mb([(2000, 1500)])  # ~51 MB at the default factor
+        rt_settings.memory_budget_mb = rss_mb()  # resident versions have used their budget
+        rt_settings.request_memory_ceiling_mb = rss_mb() + per_request * 2 + per_request // 2
+        replies = await asyncio.gather(*[
+            c.post("/v1/infer", headers=headers, json={
+                "request_id": f"m{i}", "version_id": "v-burst",
+                "images": [{"b64": big_b64}], "deadline_ms": 30000}) for i in range(8)])
+        statuses = sorted(r.status_code for r in replies)
+        refused = [r.json()["error"] for r in replies if r.status_code == 503]
+        checks.append(("a burst over the request headroom gets queue_full and releases memory",
+                       statuses.count(200) >= 1 and len(refused) >= 1
+                       and all(e["code"] == "queue_full" and e["details"]["needs_mb"]
+                               == per_request for e in refused)
+                       and store.requests.reserved_mb == 0 and store.requests.in_flight == 0
+                       and set(statuses) <= {200, 503},
+                       {"statuses": statuses, "reserved_after": store.requests.reserved_mb}))
+
+        # 21 - one request that could never fit is refused as too large, not retried forever
+        rt_settings.memory_budget_mb = rss_mb()
+        rt_settings.request_memory_ceiling_mb = rss_mb() + per_request // 2
+        r = await c.post("/v1/infer", headers=headers, json={
+            "request_id": "m-huge", "version_id": "v-burst", "images": [{"b64": big_b64}],
+            "deadline_ms": 30000})
+        checks.append(("an image that can never fit is refused as payload_too_large",
+                       r.status_code == 413 and r.json()["error"]["code"] == "payload_too_large"
+                       and store.requests.reserved_mb == 0,
+                       r.json()["error"]["code"] if r.status_code != 200 else 200))
+        rt_settings.memory_budget_mb = 0
+        rt_settings.request_memory_ceiling_mb = 0
+        await burst.drain()
+
+        # 22 - activation memory is reserved only past what the version's arena already held
+        from runtime.memory import Admission
+        gate = Admission()
+        gate.warmed("v-act", 2)                           # warmed at batch 2
+        rt_settings.request_memory_ceiling_mb = rss_mb() + 500
+        t1, need1, _ = gate.try_reserve("v-act", 1, 5, 300)  # 1 image: inside the arena
+        t2, need2, _ = gate.try_reserve("v-act", 1, 5, 300)  # 2 images: still inside
+        t3, need3, _ = gate.try_reserve("v-act", 1, 5, 300)  # 3rd image grows the arena
+        t4, need4, _ = gate.try_reserve("v-act", 1, 5, 300)  # 4th would pass the ceiling
+        for t in (t1, t2, t3):
+            gate.release(t)
+        t5, need5, _ = gate.try_reserve("v-act", 3, 5, 300)  # 3 at once now fit the arena
+        gate.release(t5)
+        checks.append(("activation memory is reserved only beyond the arena's high-water mark",
+                       (need1, need2, need3) == (5, 5, 305) and t4 is None and need4 == 305
+                       and need5 == 5 and gate.reserved_mb == 0,
+                       {"needs": [need1, need2, need3, need4, need5]}))
+        rt_settings.request_memory_ceiling_mb = 0
+
         await slow.drain()
         await entry.batcher.drain()
         await static.batcher.drain()
