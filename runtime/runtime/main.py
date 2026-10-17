@@ -13,17 +13,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import hmac
+import io
 import logging
 import time
 from contextlib import asynccontextmanager
 
 import numpy as np
-from fastapi import FastAPI, Header, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
-from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, \
-    generate_latest
-from pydantic import BaseModel, Field
-
 from aperture_core.configspec import ModelConfig
 from aperture_core.images import ImageDecodeError, decode_image_bytes, image_stats
 from aperture_core.overlay import render_png
@@ -31,10 +26,24 @@ from aperture_core.postprocess import confidence_summary, postprocess
 from aperture_core.preprocess import preprocess_batch
 from aperture_core.results import ImageResult
 from aperture_core.sandbox import HookError
+from fastapi import FastAPI, Header, Request
+from fastapi.responses import JSONResponse, PlainTextResponse
+from PIL import Image
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+from pydantic import BaseModel, Field
+
 from runtime.backends.base import MissingInputError
 from runtime.batcher import Deadline, QueueFull
 from runtime.control import ControlPlane
 from runtime.device import detect
+from runtime.memory import request_need_mb
 from runtime.settings import settings
 from runtime.store import ModelStore
 
@@ -173,7 +182,45 @@ async def infer(body: InferRequest, x_runtime_token: str = Header(None)) -> dict
 
     started = time.perf_counter()
     try:
-        arrays, stats = await asyncio.to_thread(_decode_all, body.images,
+        blobs, sizes = await asyncio.to_thread(_read_headers, body.images)
+    except ImageDecodeError as exc:
+        infer_requests.labels(str(entry.version), "invalid_image").inc()
+        raise _error(400, "invalid_image", str(exc))
+
+    # reserve working memory before decoding anything (see memory.Admission)
+    admission = store.requests
+    ticket, need_mb, headroom = admission.try_reserve(
+        body.version_id, len(sizes), request_need_mb(sizes), entry.activation_mb)
+    if ticket is None:
+        infer_requests.labels(str(entry.version), "queue_full").inc()
+        details = {"needs_mb": need_mb, "headroom_mb": headroom,
+                   "inflight_reserved_mb": admission.reserved_mb,
+                   "inflight_requests": admission.in_flight}
+        if need_mb > max(headroom, admission.request_space_mb()):
+            raise _error(413, "payload_too_large",
+                         f"these images need ~{need_mb} MB of working memory and this replica "
+                         f"has {headroom} MB beside its resident models; send smaller images "
+                         "or fewer per request", details)
+        if admission.in_flight == 0:
+            # nothing to wait for here: the resident models leave too little room
+            raise _error(503, "queue_full",
+                         f"this replica's resident models leave {headroom} MB for requests and "
+                         f"these images need ~{need_mb} MB; another replica, a smaller image or "
+                         "more runtime memory will serve it", details)
+        raise _error(503, "queue_full",
+                     f"this replica has no memory for another request right now "
+                     f"(needs ~{need_mb} MB, {headroom - admission.reserved_mb} MB free); "
+                     "retry shortly", details)
+    try:
+        return await _infer_admitted(body, entry, config, blobs, started)
+    finally:
+        admission.release(ticket)
+
+
+async def _infer_admitted(body: InferRequest, entry, config: ModelConfig, blobs: list[bytes],
+                          started: float) -> dict:
+    try:
+        arrays, stats = await asyncio.to_thread(_decode_all, blobs, body.images,
                                                 config.preprocess.auto_orient, body.want_stats)
     except ImageDecodeError as exc:
         infer_requests.labels(str(entry.version), "invalid_image").inc()
@@ -281,9 +328,9 @@ def _extra_inputs(raw: dict[str, list], batch: int) -> dict[str, np.ndarray]:
     return out
 
 
-def _decode_all(images: list[ImagePayload], auto_orient: bool, want_stats: bool
-                ) -> tuple[list[np.ndarray], list[dict]]:
-    arrays, stats = [], []
+def _read_headers(images: list[ImagePayload]) -> tuple[list[bytes], list[tuple[int, int]]]:
+    """Raw bytes and pixel dimensions of each image, without decoding any pixels."""
+    blobs, sizes = [], []
     for index, payload in enumerate(images):
         raw = payload.b64
         if raw.startswith("data:"):
@@ -292,6 +339,19 @@ def _decode_all(images: list[ImagePayload], auto_orient: bool, want_stats: bool
             data = base64.b64decode(raw, validate=False)
         except Exception as exc:
             raise ImageDecodeError(f"image {index} is not valid base64") from exc
+        try:
+            with Image.open(io.BytesIO(data)) as header:  # lazy: reads the header only
+                sizes.append(header.size)
+        except Exception as exc:
+            raise ImageDecodeError(f"image {index} is not a readable image: {exc}") from exc
+        blobs.append(data)
+    return blobs, sizes
+
+
+def _decode_all(blobs: list[bytes], images: list[ImagePayload], auto_orient: bool,
+                want_stats: bool) -> tuple[list[np.ndarray], list[dict]]:
+    arrays, stats = [], []
+    for data, payload in zip(blobs, images):
         loaded = decode_image_bytes(data, name=payload.name, auto_orient=auto_orient)
         arrays.append(loaded.array)
         if want_stats:
