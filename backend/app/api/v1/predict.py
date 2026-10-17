@@ -41,12 +41,11 @@ from app.services.gateway import (
     Stopwatch,
     _guard_size,
     build_runtime_payload,
-    call_runtime,
     decode_b64_input,
+    dispatch,
     fetch_url_image,
     mirror_to_shadow,
     new_request_id,
-    pick_replica,
     resolve_target,
     sanitise_overrides,
 )
@@ -277,7 +276,6 @@ async def predict(
 
     error: ApiError | None = None
     reply = None
-    replica = None
     try:
         with telemetry.start_span("aperture.inference", {
             "aperture.model": model_row.slug,
@@ -285,9 +283,8 @@ async def predict(
             "aperture.route": target.route,
             "aperture.batch_size": len(images),
         }):
-            replica = await pick_replica(target.version.id, model_row.slug)
-            reply = await call_runtime(replica, payload, timeout_ms=timeout_ms,
-                                       trace_headers=traceparent)
+            reply = await dispatch(target.version.id, model_row.slug, payload,
+                                   timeout_ms=timeout_ms, trace_headers=traceparent)
     except ApiError as exc:
         error = exc
 
@@ -302,6 +299,8 @@ async def predict(
         "gateway_ms": round(gateway_ms - runtime_latency.get("runtime_ms", 0.0), 3),
         "total_ms": round(gateway_ms, 3),
     }
+    if reply and reply.retried:
+        latency["retries"] = 1  # the first replica turned it away; another one answered
 
     status = "ok" if error is None else (
         "rejected" if error.http_status in (429, 503) else
@@ -338,7 +337,7 @@ async def predict(
             policy=policy, model_row=model_row, target=target, resolved_tag=resolved.tag,
             request_id=request_id, trace_id=trace_id, span_id=span_id, principal=principal,
             client_ip=_client_ip(request), status=status, error=error, latency=latency,
-            reply_runtime_id=(reply.runtime_id if reply else (replica or {}).get("runtime_id")),
+            reply_runtime_id=(reply.runtime_id if reply else ((error.details or {}).get("runtime_id") if error else None)),
             input_ref=input_ref, stats=stats, results=results, confidence=confidence,
             overrides=overrides, detection_count=detection_count,
             images=[(i.data, i.name) for i in images],
@@ -349,7 +348,7 @@ async def predict(
             policy=policy, model_row=model_row, target=target, resolved_tag=resolved.tag,
             request_id=request_id, trace_id=trace_id, span_id=span_id, principal=principal,
             client_ip=_client_ip(request), status=status, error=error, latency=latency,
-            reply_runtime_id=(reply.runtime_id if reply else (replica or {}).get("runtime_id")),
+            reply_runtime_id=(reply.runtime_id if reply else ((error.details or {}).get("runtime_id") if error else None)),
             input_ref=input_ref, stats=stats, results=results, confidence=confidence,
             overrides=overrides, detection_count=detection_count,
         ))
