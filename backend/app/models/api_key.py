@@ -11,11 +11,18 @@ from app.models.base import JSON_T, Base, TimestampMixin, new_id
 
 
 class ApiKey(Base, TimestampMixin):
-    """R7.1 - scoped, revocable, never stored in the clear."""
+    """R7.1 - scoped, revocable, never stored in the clear.
+
+    A key belongs to one workspace and reaches only its models, so a model
+    slug a key calls can never become ambiguous when another workspace reuses it.
+    """
 
     __tablename__ = "api_keys"
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        sa.ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     name: Mapped[str] = mapped_column(sa.String(160), nullable=False)
     prefix: Mapped[str] = mapped_column(sa.String(24), unique=True, index=True)
     key_hash: Mapped[str] = mapped_column(sa.String(128), nullable=False)
