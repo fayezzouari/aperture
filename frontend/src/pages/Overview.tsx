@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
+import { useWorkspace } from "../lib/hooks";
 import { Legend, MetricTile, StageBreakdown, TimeSeries, VolumeChart } from "../components/charts";
 import { Badge, EmptyState, ErrorNote, Panel, PanelHeader, Spinner, Status } from "../components/ui";
 
@@ -40,6 +41,7 @@ type Overview = {
 };
 
 export default function OverviewPage() {
+  const workspace = useWorkspace();
   const overview = useQuery<Overview>({ queryKey: ["overview"], queryFn: () => api("/v1/overview"), refetchInterval: 15_000 });
 
   if (overview.isLoading) {
@@ -58,9 +60,9 @@ export default function OverviewPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold tracking-tight">Overview</h1>
+          <h1 className="text-[19px] font-semibold tracking-tight">{workspace?.name ?? "Overview"}</h1>
           <p className="mt-0.5 text-[12.5px] text-ink-3">
-            How this instance is behaving right now. Last 24 hours, refreshed every 15 seconds.
+            How this workspace is behaving right now. Last 24 hours, refreshed every 15 seconds.
           </p>
         </div>
       </div>

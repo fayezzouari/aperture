@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import audit, storage
 from app.db import get_session
-from app.deps import Page, Principal, current_user, get_model_or_404, pagination
+from app.deps import Page, Principal, get_model_or_404, pagination, workspace_user
 from app.errors import ApiError
 from app.models import Assignment, Deployment, Model, ModelVersion, Tag
 from app.schemas import ModelIn, ModelOut, ModelPatch, TagOut
@@ -104,11 +104,11 @@ async def list_models(
     deployed: bool | None = Query(None, description="only models with a live deployment"),
     include_archived: bool = False,
     page: Page = Depends(pagination),
-    principal: Principal = Depends(current_user),
+    principal: Principal = Depends(workspace_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[ModelOut]:
     principal.require("viewer")
-    stmt = sa.select(Model)
+    stmt = sa.select(Model).where(Model.workspace_id == principal.workspace_id)
     if not include_archived:
         stmt = stmt.where(Model.archived_at.is_(None))
     if q:
@@ -137,18 +137,19 @@ async def list_models(
 
 @router.post("", response_model=ModelOut, status_code=201)
 async def create_model(body: ModelIn, request: Request,
-                       principal: Principal = Depends(current_user),
+                       principal: Principal = Depends(workspace_user),
                        session: AsyncSession = Depends(get_session)) -> ModelOut:
     principal.require("developer")
     existing = (
         await session.execute(
-            sa.select(Model).where(Model.slug == body.slug)
+            sa.select(Model).where(Model.workspace_id == principal.workspace_id,
+                                   Model.slug == body.slug)
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise ApiError("slug_taken", f"'{body.slug}' already exists")
+        raise ApiError("slug_taken", f"'{body.slug}' already exists in this workspace")
 
-    model = Model(**body.model_dump())
+    model = Model(workspace_id=principal.workspace_id, **body.model_dump())
     session.add(model)
     await session.flush()
     await audit.record(session, action="model.create", actor_id=principal.id,
@@ -161,19 +162,19 @@ async def create_model(body: ModelIn, request: Request,
 
 @router.get("/{ref}", response_model=ModelOut)
 async def get_model(ref: str,
-                    principal: Principal = Depends(current_user),
+                    principal: Principal = Depends(workspace_user),
                     session: AsyncSession = Depends(get_session)) -> ModelOut:
     principal.require("viewer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     return (await _decorate(session, [model]))[0]
 
 
 @router.patch("/{ref}", response_model=ModelOut)
 async def update_model(ref: str, body: ModelPatch, request: Request,
-                       principal: Principal = Depends(current_user),
+                       principal: Principal = Depends(workspace_user),
                        session: AsyncSession = Depends(get_session)) -> ModelOut:
     principal.require("developer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     changes = body.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(model, key, value)
@@ -187,10 +188,10 @@ async def update_model(ref: str, body: ModelPatch, request: Request,
 
 @router.post("/{ref}/archive", response_model=ModelOut)
 async def archive_model(ref: str, request: Request,
-                        principal: Principal = Depends(current_user),
+                        principal: Principal = Depends(workspace_user),
                         session: AsyncSession = Depends(get_session)) -> ModelOut:
     principal.require("admin")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     live = (
         await session.execute(
             sa.select(sa.func.count()).select_from(Deployment)
@@ -211,11 +212,11 @@ async def archive_model(ref: str, request: Request,
 
 @router.delete("/{ref}", status_code=204)
 async def delete_model(ref: str, request: Request, purge_weights: bool = True,
-                       principal: Principal = Depends(current_user),
+                       principal: Principal = Depends(workspace_user),
                        session: AsyncSession = Depends(get_session)) -> None:
     """Removes the model, its versions and (by default) its weights from storage."""
     principal.require("admin")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     live = (
         await session.execute(
             sa.select(sa.func.count()).select_from(Deployment)
@@ -242,11 +243,14 @@ async def delete_model(ref: str, request: Request, purge_weights: bool = True,
 async def _storage_prefixes(session: AsyncSession, model: Model) -> set[str]:
     """Every object-store directory this model's weights and captures can live under.
 
-    New objects sit under `{model}/`. Installs that predate the single-instance
-    layout stored them under `{project}/{model}/`; those keys are still on the
-    version rows, so their directories are found from there rather than guessed.
+    New objects sit under `{workspace id}/{model}/`. Older installs wrote
+    `{model}/` (one instance, no workspaces) or `{project}/{model}/` (before
+    that); those keys are still on the version rows, so their directories are
+    found from there rather than guessed. A bare `{model}/` is cleared whole only
+    when no other model's weights sit under it - a project of the same name once
+    did - and otherwise version by version.
     """
-    prefixes = {f"{model.slug}/"}
+    prefixes = {f"{model.storage_prefix}/"}
     keys = (
         await session.execute(
             sa.select(ModelVersion.weights_key).where(ModelVersion.model_id == model.id,
@@ -257,4 +261,17 @@ async def _storage_prefixes(session: AsyncSession, model: Model) -> set[str]:
         parts = key.split("/")
         if len(parts) >= 3 and parts[-3] == model.slug:
             prefixes.add("/".join(parts[:-2]) + "/")
+    bare = f"{model.slug}/"
+    if bare in prefixes:
+        shared = (
+            await session.execute(
+                sa.select(ModelVersion.id).where(ModelVersion.model_id != model.id,
+                                                 ModelVersion.weights_key.like(f"{bare}%"))
+                .limit(1)
+            )
+        ).first()
+        if shared is not None:
+            prefixes.discard(bare)
+            prefixes |= {key.rsplit("/", 1)[0] + "/" for key in keys
+                         if key.count("/") == 2 and key.startswith(bare)}
     return prefixes

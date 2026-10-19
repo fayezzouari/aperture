@@ -219,7 +219,7 @@ async def predict(
     traceparent = {"traceparent": request.headers["traceparent"]} if "traceparent" in request.headers else {}
 
     policy = await capture_service.load_policy(session)
-    model_row = await get_model_or_404(session, model)
+    model_row = await get_model_or_404(session, model, principal.workspace_id)
 
     if principal.kind == "api_key" and principal.api_key is not None:
         if not key_allows_model(principal.api_key, model_row.id, model_row.slug):
@@ -421,7 +421,7 @@ async def _log_only(**kw) -> None:
 
 async def _capture_and_log(*, images: list[tuple[bytes, str]], overlays: list[str], **kw) -> None:
     stored = await capture_service.store_payloads(
-        model_slug=kw["model_row"].slug,
+        prefix=kw["model_row"].storage_prefix,
         request_id=kw["request_id"], images=images, overlays=overlays,
     )
     await _emit_record(capture=stored, **kw)
@@ -475,7 +475,7 @@ async def _log_rejection(*, policy, model_row, ref, request_id, trace_id, span_i
         override_rate=policy.sample_rate, forced=None, is_error=is_error
     ):
         capture_meta = await capture_service.store_payloads(
-            model_slug=model_row.slug, request_id=request_id,
+            prefix=model_row.storage_prefix, request_id=request_id,
             images=images, overlays=[],
         )
 

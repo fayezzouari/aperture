@@ -203,8 +203,9 @@ class WorkflowEngine:
     def __init__(self, session: AsyncSession, *, request_id: str,
                  trace_headers: dict[str, str] | None = None,
                  want_previews: bool = False, response_format: str = "aperture",
-                 params: dict | None = None, api_key=None):
+                 params: dict | None = None, api_key=None, workspace_id: str | None = None):
         self.session = session
+        self.workspace_id = workspace_id  # model nodes resolve inside the workflow's workspace
         self.api_key = api_key  # set when an API key called: model nodes honour its scope
         self.request_id = request_id
         self.trace_headers = trace_headers or {}
@@ -267,7 +268,7 @@ class WorkflowEngine:
 
                 stat.items_out = len(result.items)
                 stat.detections = sum(
-                    len((r.get("detections") or [])) + len((r.get("classifications") or []))
+                    len(r.get("detections") or []) + len(r.get("classifications") or [])
                     for r in result.results
                 )
                 produced[node_id] = result
@@ -322,7 +323,7 @@ class WorkflowEngine:
                 f"{MAX_ITEMS_PER_NODE}. Add a filter or lower the crop limit upstream.",
             )
 
-        model = await get_model_or_404(self.session, data["model"])
+        model = await get_model_or_404(self.session, data["model"], self.workspace_id)
         if self.api_key is not None and not key_allows_model(self.api_key, model.id, model.slug):
             raise ApiError(
                 "key_not_scoped_to_model",

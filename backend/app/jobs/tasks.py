@@ -34,6 +34,7 @@ from app.models import (
     ReportSchedule,
     Runtime,
     UploadSession,
+    Workspace,
 )
 from app.services import alerts as alert_service
 from app.services import drift as drift_service
@@ -255,7 +256,7 @@ async def convert_version(ctx: dict, job_id: str) -> dict:
 
             number = await next_version_number(session, model.id)  # locks the model until commit
             filename = os.path.basename(produced)
-            key = storage.weights_key(model.slug, number, filename)
+            key = storage.weights_key(model.storage_prefix, number, filename)
             info = await storage.put_bytes(settings.s3_bucket_weights, key, data)
 
             # a converted RF-DETR brings its own config, read from the weights;
@@ -594,6 +595,13 @@ def _convert_artifact(source_path: str, workdir: str, target: str,
 # ---------------------------------------------------------------- data exports
 
 
+def _in_workspace(workspace_id: str):
+    """Inference logs of the models in one workspace; started from the API, a job stays there."""
+    return InferenceLog.model_id.in_(
+        sa.select(Model.id).where(Model.workspace_id == workspace_id)
+    )
+
+
 async def export_flagged_dataset(ctx: dict, job_id: str) -> dict:
     """R5.10 - flagged predictions out as a dataset you can retrain on."""
     async with SessionLocal() as session:
@@ -607,6 +615,8 @@ async def export_flagged_dataset(ctx: dict, job_id: str) -> dict:
                        InferenceLog.created_at >= since]
             if params.get("model_id"):
                 clauses.append(InferenceLog.model_id == params["model_id"])
+            if params.get("workspace_id"):
+                clauses.append(_in_workspace(params["workspace_id"]))
             rows = list(
                 (
                     await session.execute(
@@ -731,6 +741,8 @@ async def purge_captures(ctx: dict, job_id: str) -> dict:
                 clauses.append(InferenceLog.purge_after <= datetime.now(UTC))
             if params.get("model_id"):
                 clauses.append(InferenceLog.model_id == params["model_id"])
+            if params.get("workspace_id"):
+                clauses.append(_in_workspace(params["workspace_id"]))
 
             rows = list(
                 (
@@ -903,7 +915,7 @@ async def _deliver_report(schedule: ReportSchedule, report: dict, url: str) -> N
                     "rows": len(report["rows"]), "totals": report["totals"], "url": url,
                 })
             elif schedule.channel == "email":
-                alert_service._send_email(  # noqa: SLF001 - one delivery helper, two callers
+                alert_service._send_email(
                     schedule.destination, f"[Aperture] {line}", f"{line}\n\n{url}", {}
                 )
     except Exception:
@@ -988,8 +1000,7 @@ def parse_roboflow_ref(ref: str) -> tuple[str, str, int]:
     """
     cleaned = (ref or "").strip()
     for prefix in ("https://", "http://"):
-        if cleaned.startswith(prefix):
-            cleaned = cleaned[len(prefix):]
+        cleaned = cleaned.removeprefix(prefix)
     cleaned = re.sub(r"^(app|universe|detect)\.roboflow\.com/", "", cleaned)
     cleaned = cleaned.split("?", 1)[0].strip("/")
     parts = [p for p in cleaned.split("/") if p]
@@ -1086,9 +1097,12 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             detail = payload.get("version") or {}
 
             slug = params.get("slug") or re.sub(r"[^a-z0-9._-]+", "-", project_id.lower()).strip("-")
+            target = await session.get(Workspace, params.get("workspace_id") or "")
+            if target is None:
+                raise ApiError("not_found", "the workspace this import was started in is gone")
             model = (
                 await session.execute(
-                    sa.select(Model).where(Model.slug == slug)
+                    sa.select(Model).where(Model.workspace_id == target.id, Model.slug == slug)
                 )
             ).scalar_one_or_none()
 
@@ -1109,7 +1123,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
 
                 if model is None:
                     model = Model(
-                        slug=slug,
+                        workspace_id=target.id, slug=slug,
                         name=detail.get("name") or project_id, task=task,
                         framework="pytorch", owner=job.created_by or "",
                         description=f"Imported from Roboflow {workspace}/{project_id}/{version}.",
@@ -1128,7 +1142,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                 artifact = inspect_artifact(weights, filename=filename)
 
             number = await next_version_number(session, model.id)  # locks the model until commit
-            key = storage.weights_key(model.slug, number, filename)
+            key = storage.weights_key(model.storage_prefix, number, filename)
             info = await storage.put_bytes(settings.s3_bucket_weights, key, data)
 
             from aperture_core import preset_config

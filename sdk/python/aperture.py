@@ -78,9 +78,12 @@ class Prediction:
 
 class Aperture:
     def __init__(self, base_url: str, *, api_key: str | None = None,
-                 timeout: float = 30.0, client: httpx.Client | None = None):
+                 workspace: str | None = None, timeout: float = 30.0,
+                 client: httpx.Client | None = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("APERTURE_KEY", "")
+        # optional: a key acts in its own workspace, and naming a different one is refused
+        self.workspace = workspace or os.environ.get("APERTURE_WORKSPACE") or None
         self._client = client or httpx.Client(timeout=timeout)
 
     # ------------------------------------------------------------------ helpers
@@ -89,6 +92,8 @@ class Aperture:
         headers = {}
         if self.api_key:
             headers["x-api-key"] = self.api_key
+        if self.workspace:
+            headers["x-aperture-workspace"] = self.workspace
         headers.update(extra or {})
         return headers
 

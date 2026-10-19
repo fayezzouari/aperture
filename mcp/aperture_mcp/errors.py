@@ -16,6 +16,9 @@ from .settings import Settings
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
+WORKSPACE_HINT = ("set APERTURE_WORKSPACE or pass workspace=<slug>; "
+                  "list_workspaces shows the slugs")
+
 TOKEN_CODES = {"unauthenticated", "token_invalid", "token_expired", "token_revoked",
                "api_key_invalid", "api_key_expired", "api_key_revoked"}
 
@@ -28,11 +31,12 @@ def hint_for(error: ApertureError, settings: Settings) -> str | None:
     if code == "forbidden" and settings.mode == "api_key":
         return "an API key only reaches predict and run_workflow; use a personal access token"
     if code == "insufficient_role":
-        return "ask an Aperture admin to raise your role"
+        return "ask a workspace admin to raise your role"
     if code == "model_not_deployed":
         return "deploy the version, or pass ondemand=true to start one replica (developer role)"
-    if code == "model_not_found":
-        return "list_models shows the model slugs"
+    if code in ("model_not_found", "no_workspace") or (
+            code == "not_found" and "workspace" in error.message):
+        return WORKSPACE_HINT
     if code in ("rate_limited", "queue_full", "no_replica_available"):
         wait = error.details.get("retry_after_seconds")
         return f"retry in {wait} s" if wait else "retry shortly"

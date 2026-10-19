@@ -75,9 +75,25 @@ def main() -> int:
     check("the bootstrap admin holds the instance admin role",
           whoami.status_code == 200 and whoami.json().get("role") == "admin",
           whoami.json().get("role", whoami.text[:80]))
-    legacy = client.get("/v1/models", headers={"x-aperture-project": "no-such-project"})
-    check("an old client's project header is ignored", legacy.status_code == 200,
-          legacy.text[:120] if legacy.status_code != 200 else "")
+
+    # ------------------------------------------------------------- workspaces
+    # Models live in a workspace; a fresh install has none until someone makes one.
+    made = client.post("/v1/workspaces", json={"slug": "e2e", "name": "End to end"})
+    check("create a workspace (or find it from an earlier run)", made.status_code in (201, 409),
+          made.text[:160] if made.status_code not in (201, 409) else "")
+    client.headers.update({"x-aperture-workspace": "e2e"})
+    listed = client.get("/v1/workspaces")
+    check("the workspace is listed with the admin role",
+          any(w["slug"] == "e2e" and w["role"] == "admin" for w in listed.json())
+          if listed.status_code == 200 else False, listed.text[:160])
+    activated = client.post("/v1/workspaces/e2e/activate")
+    remembered = client.get("/v1/auth/me").json().get("last_workspace_id")
+    check("switching to a workspace is remembered for the next sign-in",
+          activated.status_code == 200 and remembered == activated.json().get("id"),
+          activated.text[:160] if activated.status_code != 200 else "")
+    stranger = client.get("/v1/models", headers={"x-aperture-workspace": "no-such-workspace"})
+    check("an unknown workspace is a 404, not a silent fallback", stranger.status_code == 404,
+          stranger.text[:120] if stranger.status_code != 404 else "")
 
     invited = client.put("/v1/users", json={"email": "e2e-viewer@localhost", "role": "viewer"})
     check("invite a viewer", invited.status_code == 200 and invited.json().get("role") == "viewer",
@@ -398,6 +414,8 @@ def main() -> int:
     check("issue a scoped API key", key.status_code == 201 and key.json()["key"].startswith("ap_"))
     raw_key = key.json()["key"]
 
+    # the key belongs to the e2e workspace, so SLUG means the model there even when
+    # another workspace (or an earlier run on another branch) has the same slug
     keyed = httpx.Client(base_url=BASE, timeout=60.0, headers={"x-api-key": raw_key})
     with_key = keyed.post(f"/v1/models/{SLUG}/production/predict",
                           files={"images": ("a.jpg", image_bytes)})
@@ -426,6 +444,13 @@ def main() -> int:
               scoped_out.status_code == 403
               and scoped_out.json()["error"]["code"] == "key_not_scoped_to_model",
               scoped_out.json().get("error", {}).get("code", ""))
+        elsewhere = scoped_client.post(f"/v1/models/{SLUG}/production/predict",
+                                       files={"images": ("a.jpg", image_bytes)},
+                                       headers={"x-aperture-workspace": "no-such-workspace"})
+        check("a key cannot be pointed at another workspace",
+              elsewhere.status_code == 403
+              and "belongs to workspace 'e2e'" in elsewhere.json()["error"]["message"],
+              elsewhere.text[:160] if elsewhere.status_code != 403 else "")
 
     anonymous = httpx.Client(base_url=BASE, timeout=30.0)
     unauth = anonymous.post(f"/v1/models/{SLUG}/production/predict",
@@ -688,7 +713,9 @@ def main() -> int:
           f"{len(runtimes.json())} runtimes")
 
     # --------------------------------------------------------------------- mcp
-    captured_id = captured[0]["id"] if captured else None
+    # the corrupt-image check is captured too, as the bytes it sent; skip it
+    viewable = [row for row in captured if row.get("error_code") != "invalid_image"]
+    captured_id = viewable[0]["id"] if viewable else None
     mcp_checks(agent_token, image_path, captured_id)
 
     # ------------------------------------------------------------------ tidy up

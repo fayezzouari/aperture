@@ -25,7 +25,17 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# Every API container migrates on start; this makes the second one wait for the
+# first and then find nothing left to do. Any constant works, as long as it is ours.
+MIGRATION_LOCK_KEY = 0x41505254_4D4947  # "APRT" "MIG"
+
+
 def _run(connection) -> None:
+    if connection.dialect.name == "postgresql":
+        # session-level, so it outlives the migration transaction and is
+        # released when this connection closes
+        connection.exec_driver_sql(f"SELECT pg_advisory_lock({MIGRATION_LOCK_KEY})")
+        connection.commit()
     context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
     with context.begin_transaction():
         context.run_migrations()

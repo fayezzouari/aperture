@@ -30,6 +30,8 @@ class FakeApi:
         self.calls.append(request)
         if request.url.host == "minio.test":
             assert "authorization" not in request.headers, "presigned GETs must be anonymous"
+            if request.url.path.endswith(".bin"):
+                return httpx.Response(200, content=b"not-an-image")
             if request.url.path.endswith(".jpg"):
                 return httpx.Response(200, content=fx.BIG_JPEG,
                                       headers={"content-type": "image/jpeg"})
@@ -58,6 +60,7 @@ def api() -> FakeApi:
     fake = FakeApi()
     fake.routes.update({
         ("GET", "/v1/auth/me"): fx.ME,
+        ("GET", "/v1/workspaces"): fx.WORKSPACES,
         ("GET", "/v1/models"): [fx.MODEL],
         ("GET", "/v1/models/part-detection"): fx.MODEL,
         ("GET", "/v1/models/part-detection/versions"): [fx.VERSION],
@@ -77,7 +80,7 @@ def api() -> FakeApi:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(url="http://api.test", token=TOKEN)
+    return Settings(url="http://api.test", token=TOKEN, workspace="cloud")
 
 
 @pytest.fixture

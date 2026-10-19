@@ -13,6 +13,7 @@ x-api-env: &api-env
   AP_INSTANCE_NAME: ${AP_INSTANCE_NAME:-Aperture}
   AP_PUBLIC_URL: ${AP_PUBLIC_URL:-http://localhost:8080}
   AP_LOG_LEVEL: ${AP_LOG_LEVEL:-INFO}
+  AP_MIGRATE_ON_START: ${AP_MIGRATE_ON_START:-true}
   AP_DATABASE_URL: postgresql+asyncpg://aperture:${POSTGRES_PASSWORD:-aperture}@postgres:5432/aperture
   AP_REDIS_URL: redis://redis:6379/0
   AP_S3_ENDPOINT: http://minio:9000

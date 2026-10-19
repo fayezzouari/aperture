@@ -53,7 +53,7 @@ def test_config_schema_extraction_follows_refs():
     assert "error" in extract_config_schema({"components": {"schemas": {}}})
 
 
-async def test_resources(server):
+async def test_resources(server, api):
     contents = list(await server.read_resource("aperture://presets/yolov11"))
     assert json.loads(contents[0].content)["classes"] == ["bumper", "door"]
 
@@ -67,6 +67,11 @@ async def test_resources(server):
     contents = list(await server.read_resource("aperture://models/part-detection"))
     card = json.loads(contents[0].content)
     assert card["model"]["slug"] == "part-detection" and card["deployments"]
+
+    contents = list(await server.read_resource(
+        "aperture://workspaces/edge/models/part-detection"))
+    assert json.loads(contents[0].content)["model"]["slug"] == "part-detection"
+    assert api.last().headers["x-aperture-workspace"] == "edge"
 
     contents = list(await server.read_resource("aperture://me"))
     assert json.loads(contents[0].content) == fx.ME

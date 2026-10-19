@@ -45,7 +45,7 @@ scale-runtime: ## Scale runtime containers: make scale-runtime N=4
 	$(COMPOSE) up -d --scale runtime=$(or $(N),2) runtime
 
 .PHONY: migrate
-migrate: ## Apply database migrations
+migrate: ## Apply database migrations (the api also does this on start)
 	$(COMPOSE) run --rm api alembic upgrade head
 
 .PHONY: revision

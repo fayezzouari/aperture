@@ -31,6 +31,7 @@ ERROR_STATUS: dict[str, int] = {
     "version_not_found": 404,
     "tag_not_found": 404,
     "job_not_found": 404,
+    "no_workspace": 404,
     "conflict": 409,
     "version_immutable": 409,
     "slug_taken": 409,

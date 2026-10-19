@@ -27,6 +27,10 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 async def create_schema() -> None:
-    """Bootstrap a fresh database. Existing installs are migrated with alembic."""
+    """Create whatever tables are missing, for a database alembic has not been run on.
+
+    The API container migrates before it starts (serve.sh), so this is normally
+    a no-op; it keeps a bare `uvicorn` run and the tests working without alembic.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

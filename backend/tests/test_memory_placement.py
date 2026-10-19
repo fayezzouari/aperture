@@ -8,6 +8,7 @@ import sqlalchemy as sa
 
 from app.models import Assignment, Deployment, Model, ModelVersion, Runtime
 from app.services.deployer import apply_runtime_report, reconcile
+from .conftest import add_workspace
 
 MB = 1024 * 1024
 
@@ -26,7 +27,8 @@ async def _runtime(db, runtime_id: str, available_mb: int | None, loaded=None) -
 
 
 async def _deploy(db, slug: str, weights_mb: int, replicas: int = 1) -> Deployment:
-    model = Model(slug=slug, name=slug, task="detect")
+    model = Model(workspace_id=(await add_workspace(db, f"ws-{slug}")).id, slug=slug, name=slug,
+                  task="detect")
     db.add(model)
     await db.flush()
     version = ModelVersion(model_id=model.id, version=1, artifact_format="onnx",

@@ -32,9 +32,16 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404, principal_for_key
+from app.deps import (
+    Principal,
+    current_user,
+    enter_workspace,
+    get_model_or_404,
+    key_workspace,
+    principal_for_key,
+)
 from app.errors import ApiError
-from app.models import Workflow
+from app.models import Workflow, Workspace
 from app.security import key_allows_model
 from app.services.gateway import (
     InputImage,
@@ -120,7 +127,7 @@ def _recipe(workflow_id: str) -> dict:
     )
 
 
-async def _published_workflow(session: AsyncSession, workflow_id: str):
+async def _published_workflow(session: AsyncSession, workflow_id: str, workspace_id: str):
     """A real Aperture workflow standing in for this Roboflow workflow, if there is one.
 
     Matched the same way as a recipe - by prefix - so `cells-detection-staging`
@@ -128,7 +135,9 @@ async def _published_workflow(session: AsyncSession, workflow_id: str):
     built-in recipe, so the graph someone can see and edit in the UI is the one
     that actually serves, rather than a second definition hidden in this file.
     """
-    rows = (await session.execute(sa.select(Workflow))).scalars().all()
+    rows = (
+        await session.execute(sa.select(Workflow).where(Workflow.workspace_id == workspace_id))
+    ).scalars().all()
     matches = [w for w in rows if workflow_id.startswith(w.slug) and w.published_graph]
     if not matches:
         return None
@@ -191,7 +200,7 @@ async def _run_one(request: Request, session: AsyncSession, principal: Principal
                    slug: str, ref: str, image: InputImage,
                    request_id: str, overrides: dict | None = None) -> dict:
     """One model's answer, already in Roboflow's per-block shape."""
-    model_row = await get_model_or_404(session, slug)
+    model_row = await get_model_or_404(session, slug, principal.workspace_id)
 
     if principal.kind == "api_key" and principal.api_key is not None:
         if not key_allows_model(principal.api_key, model_row.id, model_row.slug):
@@ -259,10 +268,18 @@ async def run_workflow(
     # Roboflow's clients carry the key in the body, so that is where it is read
     # from - falling back to Aperture's own header for anything already using it.
     raw_key = request.headers.get("x-api-key") or body.get("api_key") or ""
+    # A key acts in its own workspace. For a signed-in user, Roboflow's workspace
+    # segment picks the Aperture workspace of that slug when there is one,
+    # otherwise the header or their last workspace decides, as on /v1.
     if raw_key:
         principal = await principal_for_key(request, session, str(raw_key))
+        principal = await key_workspace(request, principal, session)
     else:
+        named = (
+            await session.execute(sa.select(Workspace.slug).where(Workspace.slug == workspace_id))
+        ).scalar_one_or_none()
         principal = await current_user(request, session)
+        principal = await enter_workspace(request, principal, session, named)
 
     inputs = body.get("inputs")
     if not isinstance(inputs, dict):
@@ -275,12 +292,13 @@ async def run_workflow(
     # A workflow someone built in Aperture is the better answer than the recipe
     # baked into this module: it is visible, editable and version-tracked. The
     # recipe stays as the fallback for instances that never defined one.
-    managed = await _published_workflow(session, workflow_id)
+    managed = await _published_workflow(session, workflow_id, principal.workspace_id)
     if managed is not None:
         params = {k: v for k, v in inputs.items() if k != "image"}
         engine = WorkflowEngine(session, request_id=request_id,
                                 response_format="roboflow", params=params,
-                                api_key=principal.api_key)
+                                api_key=principal.api_key,
+                                workspace_id=managed.workspace_id)
         result = await engine.run(managed.published_graph, [image])
         if result.status != "ok":
             raise ApiError(result.error_code or "inference_failed",

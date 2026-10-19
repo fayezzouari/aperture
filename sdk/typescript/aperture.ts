@@ -123,6 +123,8 @@ export class ApertureError extends Error {
 export interface ApertureOptions {
   baseUrl: string;
   apiKey?: string;
+  /** Optional: a key acts in its own workspace, and naming a different one is refused. */
+  workspace?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
@@ -140,12 +142,14 @@ export interface PredictOptions {
 export class Aperture {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
+  private readonly workspace?: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
   constructor(options: ApertureOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.apiKey = options.apiKey;
+    this.workspace = options.workspace;
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }
@@ -154,6 +158,7 @@ export class Aperture {
     const url = `${this.baseUrl}/v1/models/${encodeURIComponent(model)}/${encodeURIComponent(ref)}/predict`;
     const headers: Record<string, string> = {};
     if (this.apiKey) headers["x-api-key"] = this.apiKey;
+    if (this.workspace) headers["x-aperture-workspace"] = this.workspace;
     if (options.traceparent) headers.traceparent = options.traceparent;
 
     let body: BodyInit;
@@ -210,6 +215,7 @@ export class Aperture {
   private async json<T>(path: string): Promise<T> {
     const headers: Record<string, string> = {};
     if (this.apiKey) headers["x-api-key"] = this.apiKey;
+    if (this.workspace) headers["x-aperture-workspace"] = this.workspace;
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, { headers });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));

@@ -5,7 +5,8 @@ instance and it can read the registry, the fleet, the traffic and the audit log,
 run an image through a model, and *look* at the overlay that came back.
 
 It is a client of `/v1` and nothing else: no database credentials, no Redis, no
-bypass. Everything it can do is what the token owner's role allows.
+bypass. Everything it can do is what the token owner's roles allow: the role
+they hold in each workspace, and their instance role for the rest.
 
 ## Run it
 
@@ -15,6 +16,7 @@ tokens**), then:
 ```bash
 APERTURE_URL=http://localhost:8080 \
 APERTURE_TOKEN=ap_pat_xxxx.yyyy \
+APERTURE_WORKSPACE=cloud \
   uvx --from . aperture-mcp
 ```
 
@@ -24,20 +26,22 @@ In Claude Code:
 claude mcp add aperture \
   -e APERTURE_URL=http://localhost:8080 \
   -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \
+  -e APERTURE_WORKSPACE=cloud \
   -- uvx --from /path/to/aperture/mcp aperture-mcp
 ```
 
-Claude Desktop and Cursor take the same two variables as JSON; the README at
+Claude Desktop and Cursor take the same three variables as JSON; the README at
 the repository root has that form.
 
 | Variable | |
 |---|---|
 | `APERTURE_URL` | required, e.g. `http://localhost:8080` |
 | `APERTURE_TOKEN` | required. `ap_pat_…` for everything; an `ap_…` API key registers only `predict` and `run_workflow`, because that is all a key can reach |
+| `APERTURE_WORKSPACE` | optional default workspace slug; every tool also takes `workspace=`. Unset, a user's calls act in the workspace they opened last in the console. An API key acts in the workspace it belongs to, so leave it unset or set it to that workspace |
 
 ## Tools
 
-**Registry** — `list_models`, `get_model`, `list_versions`,
+**Registry** — `list_workspaces`, `list_models`, `get_model`, `list_versions`,
 `get_version`, `compare_versions`, `list_presets`, `get_preset`.
 
 **Operations** — `get_overview`, `get_metrics`, `get_errors`, `list_runtimes`,
@@ -61,6 +65,8 @@ error code, the message, the request id, and a hint where there is one.
 
 ```
 aperture://me
+aperture://workspaces
+aperture://workspaces/{slug}/models/{ref}
 aperture://models/{ref}
 aperture://models/{ref}/versions/{n}/config
 aperture://presets/{name}

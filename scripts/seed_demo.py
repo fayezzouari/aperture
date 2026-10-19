@@ -31,6 +31,14 @@ def main() -> int:
     login = client.post("/v1/auth/login", json={"email": EMAIL, "password": PASSWORD})
     login.raise_for_status()
     client.headers.update({"authorization": f"Bearer {login.json()['access_token']}"})
+    # everything below lands in one workspace; a rerun finds it already there
+    workspace = client.post("/v1/workspaces", json={
+        "slug": "demo", "name": "Demo", "description": "Seeded by scripts/seed_demo.py.",
+    })
+    if workspace.status_code not in (201, 409):
+        print(f"could not create the demo workspace: {workspace.text[:200]}")
+        return 1
+    client.headers.update({"x-aperture-workspace": "demo"})
     print(f"signed in to {BASE} as {EMAIL}")
 
     workdir = tempfile.mkdtemp(prefix="aperture-seed-")

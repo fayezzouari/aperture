@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db import get_session
 from app.main import app
-from app.models import Base, User
+from app.models import Base, User, Workspace, WorkspaceMember
 from app.security import hash_password, issue_token
 
 
@@ -65,28 +65,48 @@ class Person:
     headers: dict[str, str]  # a session JWT
 
 
-async def _person(db: AsyncSession, email: str, role: str) -> Person:
+async def add_workspace(session: AsyncSession, slug: str = "main") -> Workspace:
+    """A workspace to hang test models on, for tests that build rows by hand."""
+    row = Workspace(slug=slug, name=slug.title())
+    session.add(row)
+    await session.flush()
+    return row
+
+
+@pytest.fixture
+async def workspace(db) -> Workspace:
+    """The one workspace the people fixtures belong to; their instance role is their role in it."""
+    row = await add_workspace(db)
+    await db.commit()
+    return row
+
+
+async def _person(db: AsyncSession, email: str, role: str,
+                  workspace: Workspace | None = None) -> Person:
     user = User(email=email, name=email.split("@")[0], password_hash=hash_password("pw"),
                 role=role)
     db.add(user)
+    await db.flush()
+    if workspace is not None and role != "admin":
+        db.add(WorkspaceMember(user_id=user.id, workspace_id=workspace.id, role=role))
     await db.commit()
     token, _ = issue_token(user)
     return Person(user=user, headers={"authorization": f"Bearer {token}"})
 
 
 @pytest.fixture
-async def admin(db) -> Person:
-    return await _person(db, "admin@test", "admin")
+async def admin(db, workspace) -> Person:
+    return await _person(db, "admin@test", "admin", workspace)
 
 
 @pytest.fixture
-async def developer(db) -> Person:
-    return await _person(db, "developer@test", "developer")
+async def developer(db, workspace) -> Person:
+    return await _person(db, "developer@test", "developer", workspace)
 
 
 @pytest.fixture
-async def viewer(db) -> Person:
-    return await _person(db, "viewer@test", "viewer")
+async def viewer(db, workspace) -> Person:
+    return await _person(db, "viewer@test", "viewer", workspace)
 
 
 async def make_pat(client: httpx.AsyncClient, headers: dict[str, str], name: str = "agent",

@@ -43,7 +43,7 @@ export default function Keys() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight">API keys</h1>
-          <p className="mt-0.5 text-[12.5px] text-ink-3">One key per product. Scope it to the models that product actually calls.</p>
+          <p className="mt-0.5 text-[12.5px] text-ink-3">One key per product. A key reaches only this workspace's models; scope it to the ones that product actually calls.</p>
         </div>
         {can(role, "admin") ? (
           <Button variant="primary" onClick={() => setCreating(true)}>

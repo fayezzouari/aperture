@@ -24,6 +24,8 @@ from app.models.upload_session import UploadSession
 from app.models.user import User
 from app.models.workflow import Workflow
 from app.models.workflow_run import WorkflowRun
+from app.models.workspace import Workspace
+from app.models.workspace_member import WorkspaceMember
 
 __all__ = [
     "JSON_T",
@@ -49,5 +51,7 @@ __all__ = [
     "User",
     "Workflow",
     "WorkflowRun",
+    "Workspace",
+    "WorkspaceMember",
     "new_id",
 ]

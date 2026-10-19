@@ -1,4 +1,4 @@
-"""Request-scoped dependencies: who is calling, and with what rights."""
+"""Request-scoped dependencies: who is calling, in which workspace, with what rights."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from app.cache import check_quota, check_rate_limit
 from app.db import get_session
 from app.errors import ApiError
 from app.metrics import rejected_total
-from app.models import ApiKey, Model, PersonalAccessToken, User
+from app.models import ApiKey, Model, PersonalAccessToken, User, Workspace, WorkspaceMember
 from app.security import (
     aware_utc,
     decode_token,
@@ -25,6 +25,8 @@ from app.security import (
 )
 from app.settings import settings
 
+WORKSPACE_HEADER = "x-aperture-workspace"
+
 
 @dataclass
 class Principal:
@@ -34,6 +36,9 @@ class Principal:
     role: str | None = None  # the instance role; None for an API key
     api_key: ApiKey | None = None
     token: PersonalAccessToken | None = None  # set when a personal access token signed in
+    # set by the workspace dependencies; while set, `require` checks the member role
+    workspace: Workspace | None = None
+    workspace_role: str | None = None
 
     @property
     def actor_type(self) -> str:
@@ -46,9 +51,20 @@ class Principal:
     def is_admin(self) -> bool:
         return self.kind == "user" and self.role == "admin"
 
+    @property
+    def workspace_id(self) -> str | None:
+        return self.workspace.id if self.workspace else None
+
     def require(self, minimum: str) -> None:
+        """The role inside the active workspace when there is one, else the instance role."""
         if self.kind == "api_key":
             # keys never touch the control plane; routes that need a role never accept one
+            raise ApiError("forbidden", "this endpoint requires a signed-in user")
+        require_role(self.workspace_role if self.workspace else self.role, minimum)
+
+    def require_instance(self, minimum: str) -> None:
+        """The instance role, whatever workspace is active."""
+        if self.kind == "api_key":
             raise ApiError("forbidden", "this endpoint requires a signed-in user")
         require_role(self.role, minimum)
 
@@ -122,9 +138,28 @@ async def inference_principal(
         raw_key = bearer
 
     if raw_key:
-        return await principal_for_key(request, session, raw_key)
+        principal = await principal_for_key(request, session, raw_key)
+        return await key_workspace(request, principal, session)
 
     principal = await current_user(request, session)
+    return await enter_workspace(request, principal, session)
+
+
+async def key_workspace(request: Request, principal: Principal,
+                        session: AsyncSession) -> Principal:
+    """An API key acts in the workspace it belongs to, and only there.
+
+    The header is optional for a key; naming a different workspace is refused
+    rather than ignored, so a misconfigured client finds out at once.
+    """
+    workspace = await session.get(Workspace, principal.api_key.workspace_id)
+    if workspace is None:
+        raise ApiError("api_key_invalid", "the workspace of this API key no longer exists")
+    named = request.headers.get(WORKSPACE_HEADER)
+    if named and named != workspace.slug:
+        raise ApiError("forbidden", f"this API key belongs to workspace '{workspace.slug}', "
+                                    f"not '{named}'")
+    principal.workspace = workspace
     return principal
 
 
@@ -163,11 +198,101 @@ async def principal_for_key(
     return Principal(kind="api_key", id=key.id, label=key.name, api_key=key)
 
 
-async def get_model_or_404(session: AsyncSession, ref: str) -> Model:
-    stmt = sa.select(Model).where(sa.or_(Model.slug == ref, Model.id == ref))
-    found = (await session.execute(stmt)).scalar_one_or_none()
+async def workspace_role(session: AsyncSession, user_id: str, instance_role: str | None,
+                         workspace_id: str) -> str | None:
+    """An instance admin is admin everywhere; anyone else needs a membership."""
+    if instance_role == "admin":
+        return "admin"
+    return (
+        await session.execute(
+            sa.select(WorkspaceMember.role).where(WorkspaceMember.user_id == user_id,
+                                                  WorkspaceMember.workspace_id == workspace_id)
+        )
+    ).scalar_one_or_none()
+
+
+def readable_workspaces(principal: Principal):
+    """The workspaces a user can open, as a select; every one for an instance admin."""
+    stmt = sa.select(Workspace)
+    if not principal.is_admin:
+        stmt = stmt.where(
+            Workspace.id.in_(
+                sa.select(WorkspaceMember.workspace_id)
+                .where(WorkspaceMember.user_id == principal.id)
+            )
+        )
+    return stmt
+
+
+async def enter_workspace(request: Request, principal: Principal, session: AsyncSession,
+                          slug: str | None = None) -> Principal:
+    """Set the workspace a user's request acts in.
+
+    It comes from the `workspace` query parameter or the X-Aperture-Workspace
+    header; without either, the workspace the user switched to last, and failing
+    that the oldest one they can open. Naming a workspace is a request, not a
+    grant: the caller still has to be a member of it.
+    """
+    slug = slug or request.headers.get(WORKSPACE_HEADER)
+    if slug:
+        found = (
+            await session.execute(sa.select(Workspace).where(Workspace.slug == slug))
+        ).scalar_one_or_none()
+        if found is None:
+            raise ApiError("not_found", f"no workspace '{slug}'")
+        role = await workspace_role(session, principal.id, principal.role, found.id)
+        if role is None:
+            raise ApiError("forbidden", f"you are not a member of workspace '{slug}'")
+        principal.workspace, principal.workspace_role = found, role
+        return principal
+
+    readable = readable_workspaces(principal).subquery()
+    user = await session.get(User, principal.id)
+    found = None
+    if user is not None and user.last_workspace_id:
+        found = (
+            await session.execute(
+                sa.select(Workspace).where(Workspace.id == user.last_workspace_id,
+                                           Workspace.id.in_(sa.select(readable.c.id)))
+            )
+        ).scalar_one_or_none()
     if found is None:
-        raise ApiError("model_not_found", f"no model '{ref}'")
+        found = (
+            await session.execute(
+                readable_workspaces(principal)
+                .order_by(Workspace.created_at, Workspace.slug).limit(1)
+            )
+        ).scalar_one_or_none()
+    if found is None:
+        raise ApiError("no_workspace", "you are not a member of any workspace yet")
+    principal.workspace = found
+    principal.workspace_role = await workspace_role(session, principal.id, principal.role,
+                                                    found.id)
+    return principal
+
+
+async def workspace_user(
+    request: Request,
+    workspace: str | None = Query(
+        None, description="workspace slug; defaults to the X-Aperture-Workspace header"
+    ),
+    principal: Principal = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> Principal:
+    """A signed-in user acting inside one workspace."""
+    return await enter_workspace(request, principal, session, workspace)
+
+
+async def get_model_or_404(session: AsyncSession, ref: str, workspace_id: str | None) -> Model:
+    """A model by slug or id, inside the caller's workspace."""
+    found = (
+        await session.execute(
+            sa.select(Model).where(Model.workspace_id == workspace_id,
+                                   sa.or_(Model.slug == ref, Model.id == ref))
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise ApiError("model_not_found", f"no model '{ref}' in this workspace")
     return found
 
 

@@ -22,9 +22,9 @@ from app.db import get_session
 from app.deps import (
     Page,
     Principal,
-    current_user,
     inference_principal,
     pagination,
+    workspace_user,
 )
 from app.errors import ApiError
 from app.metrics import errors_total, request_latency, requests_total
@@ -92,12 +92,13 @@ async def _decorate(session: AsyncSession, workflow: Workflow, *, with_stats: bo
 
 
 @router.get("", response_model=list[WorkflowOut])
-async def list_workflows(principal: Principal = Depends(current_user),
+async def list_workflows(principal: Principal = Depends(workspace_user),
                          session: AsyncSession = Depends(get_session)) -> list[WorkflowOut]:
     principal.require("viewer")
     rows = (
         await session.execute(
-            sa.select(Workflow).where(Workflow.archived_at.is_(None))
+            sa.select(Workflow).where(Workflow.workspace_id == principal.workspace_id,
+                                      Workflow.archived_at.is_(None))
             .order_by(Workflow.updated_at.desc())
         )
     ).scalars().all()
@@ -106,19 +107,20 @@ async def list_workflows(principal: Principal = Depends(current_user),
 
 @router.post("", response_model=WorkflowOut, status_code=201)
 async def create_workflow(body: WorkflowIn, request: Request,
-                          principal: Principal = Depends(current_user),
+                          principal: Principal = Depends(workspace_user),
                           session: AsyncSession = Depends(get_session)) -> WorkflowOut:
     principal.require("developer")
     existing = (
         await session.execute(
-            sa.select(Workflow).where(Workflow.slug == body.slug)
+            sa.select(Workflow).where(Workflow.workspace_id == principal.workspace_id,
+                                      Workflow.slug == body.slug)
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise ApiError("slug_taken", f"a workflow '{body.slug}' already exists")
+        raise ApiError("slug_taken", f"a workflow '{body.slug}' already exists in this workspace")
 
     workflow = Workflow(
-        slug=body.slug, name=body.name, description=body.description,
+        workspace_id=principal.workspace_id, slug=body.slug, name=body.name, description=body.description,
         owner=body.owner, labels=body.labels, graph=body.graph or starter_graph(),
         created_by=principal.id,
     )
@@ -134,19 +136,19 @@ async def create_workflow(body: WorkflowIn, request: Request,
 
 @router.get("/{slug}", response_model=WorkflowOut)
 async def get_workflow(slug: str,
-                       principal: Principal = Depends(current_user),
+                       principal: Principal = Depends(workspace_user),
                        session: AsyncSession = Depends(get_session)) -> WorkflowOut:
     principal.require("viewer")
-    return await _decorate(session, await _find(session, slug))
+    return await _decorate(session, await _find(session, slug, principal.workspace_id))
 
 
 @router.patch("/{slug}", response_model=WorkflowOut)
 async def update_workflow(slug: str, body: WorkflowPatch, request: Request,
-                          principal: Principal = Depends(current_user),
+                          principal: Principal = Depends(workspace_user),
                           session: AsyncSession = Depends(get_session)) -> WorkflowOut:
     """Saving the canvas. The draft is free to be broken; publishing is not."""
     principal.require("developer")
-    workflow = await _find(session, slug)
+    workflow = await _find(session, slug, principal.workspace_id)
     changes = body.model_dump(exclude_unset=True)
     for key, value in changes.items():
         setattr(workflow, key, value)
@@ -164,21 +166,21 @@ async def update_workflow(slug: str, body: WorkflowPatch, request: Request,
 
 @router.post("/{slug}/validate", response_model=WorkflowValidateOut)
 async def validate(slug: str,
-                   principal: Principal = Depends(current_user),
+                   principal: Principal = Depends(workspace_user),
                    session: AsyncSession = Depends(get_session)) -> WorkflowValidateOut:
     principal.require("viewer")
-    workflow = await _find(session, slug)
+    workflow = await _find(session, slug, principal.workspace_id)
     problems = validate_graph(workflow.graph or {})
     return WorkflowValidateOut(ok=not problems, problems=problems)
 
 
 @router.post("/{slug}/publish", response_model=WorkflowOut)
 async def publish(slug: str, request: Request,
-                  principal: Principal = Depends(current_user),
+                  principal: Principal = Depends(workspace_user),
                   session: AsyncSession = Depends(get_session)) -> WorkflowOut:
     """Snapshot the draft as what callers get. Refuses an invalid graph."""
     principal.require("developer")
-    workflow = await _find(session, slug)
+    workflow = await _find(session, slug, principal.workspace_id)
     problems = validate_graph(workflow.graph or {})
     if problems:
         raise ApiError(
@@ -201,10 +203,10 @@ async def publish(slug: str, request: Request,
 
 @router.delete("/{slug}", status_code=204)
 async def delete_workflow(slug: str, request: Request,
-                          principal: Principal = Depends(current_user),
+                          principal: Principal = Depends(workspace_user),
                           session: AsyncSession = Depends(get_session)) -> None:
     principal.require("admin")
-    workflow = await _find(session, slug)
+    workflow = await _find(session, slug, principal.workspace_id)
     await audit.record(session, action="workflow.delete", actor_id=principal.id,
                        actor_label=principal.label,
                        target_type="workflow", target_id=workflow.id, target_label=workflow.slug,
@@ -235,7 +237,7 @@ async def run_workflow(
     traceparent = ({"traceparent": request.headers["traceparent"]}
                    if "traceparent" in request.headers else {})
 
-    workflow = await _find(session, slug)
+    workflow = await _find(session, slug, principal.workspace_id)
     images, body = await _collect(request)
     _guard_size(sum(len(image.data) for image in images), len(images))
 
@@ -261,7 +263,8 @@ async def run_workflow(
                             trace_headers=traceparent,
                             want_previews=body.include_previews and principal.kind == "user",
                             response_format=(response_format or settings.default_response_format),
-                            params=body.params, api_key=principal.api_key)
+                            params=body.params, api_key=principal.api_key,
+                            workspace_id=workflow.workspace_id)
     with telemetry.start_span("aperture.workflow", {"aperture.workflow": slug,
                                                     "aperture.images": len(images)}):
         result = await engine.run(graph, images)
@@ -304,10 +307,10 @@ async def run_workflow(
 @router.get("/{slug}/runs", response_model=list[WorkflowRunSummary])
 async def list_runs(slug: str, page: Page = Depends(pagination),
                     status: str | None = Query(None),
-                    principal: Principal = Depends(current_user),
+                    principal: Principal = Depends(workspace_user),
                     session: AsyncSession = Depends(get_session)) -> list[WorkflowRunSummary]:
     principal.require("viewer")
-    workflow = await _find(session, slug)
+    workflow = await _find(session, slug, principal.workspace_id)
     stmt = sa.select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id)
     if status:
         stmt = stmt.where(WorkflowRun.status == status)
@@ -322,14 +325,15 @@ async def list_runs(slug: str, page: Page = Depends(pagination),
 # ---------------------------------------------------------------------- helpers
 
 
-async def _find(session: AsyncSession, slug: str) -> Workflow:
+async def _find(session: AsyncSession, slug: str, workspace_id: str | None) -> Workflow:
     found = (
         await session.execute(
-            sa.select(Workflow).where(sa.or_(Workflow.slug == slug, Workflow.id == slug))
+            sa.select(Workflow).where(Workflow.workspace_id == workspace_id,
+                                      sa.or_(Workflow.slug == slug, Workflow.id == slug))
         )
     ).scalar_one_or_none()
     if found is None:
-        raise ApiError("not_found", f"no workflow '{slug}'")
+        raise ApiError("not_found", f"no workflow '{slug}' in this workspace")
     return found
 
 

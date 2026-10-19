@@ -27,7 +27,12 @@ def page(items: list[Any], limit: int, offset: int) -> dict[str, Any]:
 
 
 def user_row(row: dict) -> dict:
-    return pick(row, "id", "email", "name", "provider", "role", "is_active", "last_login_at")
+    return pick(row, "id", "email", "name", "provider", "role", "is_active", "last_login_at",
+                "last_workspace_id")
+
+
+def workspace_row(row: dict) -> dict:
+    return pick(row, "slug", "name", "description", "model_count", "member_count", "role")
 
 
 def model_row(row: dict) -> dict:

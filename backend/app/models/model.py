@@ -17,9 +17,14 @@ if TYPE_CHECKING:
 
 class Model(Base, TimestampMixin):
     __tablename__ = "models"
-    __table_args__ = (sa.UniqueConstraint("slug", name="uq_model_slug"),)
+    __table_args__ = (
+        sa.UniqueConstraint("workspace_id", "slug", name="uq_model_workspace_slug"),
+    )
 
     id: Mapped[str] = mapped_column(sa.String(36), primary_key=True, default=new_id)
+    workspace_id: Mapped[str] = mapped_column(
+        sa.ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     slug: Mapped[str] = mapped_column(sa.String(96), nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.String(160), nullable=False)
     task: Mapped[str] = mapped_column(sa.String(32), nullable=False, index=True)
@@ -36,3 +41,9 @@ class Model(Base, TimestampMixin):
     tags: Mapped[list[Tag]] = relationship(
         back_populates="model", cascade="all, delete-orphan", passive_deletes=True
     )
+
+    @property
+    def storage_prefix(self) -> str:
+        from app import storage
+
+        return storage.model_prefix(self.workspace_id, self.slug)

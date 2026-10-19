@@ -1,7 +1,8 @@
 """Read-only tools: the registry, the fleet, the traffic, the audit trail.
 
-Every tool here is a GET against /v1 behind the caller's own role. Lists page
-with limit/offset and return `next_offset` when there may be more.
+Every tool here is a GET against /v1 behind the caller's own roles. `workspace`
+overrides the default workspace slug for one call; lists page with limit/offset
+and return `next_offset` when there may be more.
 """
 
 from __future__ import annotations
@@ -29,18 +30,30 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
     client = state.client
     guard = guarded(state.settings)
 
+    # ----------------------------------------------------------- workspaces
+
+    @mcp.tool(annotations=READ)
+    @guard
+    async def list_workspaces() -> dict[str, Any]:
+        """Workspaces this token can see, with the caller's role in each. Workspace slugs
+        are what `workspace=` takes on every other tool; without it a call acts in
+        APERTURE_WORKSPACE, or else the workspace last opened in the console."""
+        rows = await client.get("/v1/workspaces")
+        return {"items": [trim.workspace_row(r) for r in rows],
+                "default": state.settings.workspace}
+
     # --------------------------------------------------------------- models
 
     @mcp.tool(annotations=READ)
     @guard
     async def list_models(q: str | None = None, task: str | None = None,
                           tag: str | None = None, deployed: bool | None = None,
-                          include_archived: bool = False, limit: int = 50,
-                          offset: int = 0) -> dict[str, Any]:
-        """Models on this instance with what is live and how each behaved in the last 24 h.
+                          include_archived: bool = False, limit: int = 50, offset: int = 0,
+                          workspace: str | None = None) -> dict[str, Any]:
+        """Models in the workspace with what is live and how each behaved in the last 24 h.
         `q` matches slug, name, owner or description; `tag` keeps models carrying that tag
         (e.g. production); `deployed=true` keeps models with at least one live replica."""
-        rows = await client.get("/v1/models", params={
+        rows = await client.get("/v1/models", workspace=workspace, params={
             "q": q, "task": task, "tag": tag, "deployed": deployed,
             "include_archived": include_archived, "limit": _limit(limit), "offset": offset,
         })
@@ -48,12 +61,12 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_model(ref: str) -> dict[str, Any]:
+    async def get_model(ref: str, workspace: str | None = None) -> dict[str, Any]:
         """One model as a card: its tags, every version with status, and the live
         deployments with replica readiness. `ref` is the model slug or id."""
-        model = await client.get(f"/v1/models/{ref}")
-        versions = await client.get(f"/v1/models/{ref}/versions")
-        deployments = await client.get(f"/v1/models/{ref}/deployments")
+        model = await client.get(f"/v1/models/{ref}", workspace=workspace)
+        versions = await client.get(f"/v1/models/{ref}/versions", workspace=workspace)
+        deployments = await client.get(f"/v1/models/{ref}/deployments", workspace=workspace)
         return {
             "model": trim.model_row(model),
             "description": model.get("description") or "",
@@ -63,27 +76,29 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
 
     @mcp.tool(annotations=READ)
     @guard
-    async def list_versions(ref: str) -> dict[str, Any]:
+    async def list_versions(ref: str, workspace: str | None = None) -> dict[str, Any]:
         """Every version of a model: status (draft, ready, published, failed...), preset,
         artifact format, dataset, metrics, changelog and which tags point at it."""
-        rows = await client.get(f"/v1/models/{ref}/versions")
+        rows = await client.get(f"/v1/models/{ref}/versions", workspace=workspace)
         return {"items": [trim.version_row(v) for v in rows], "count": len(rows)}
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_version(ref: str, version: int, include_config: bool = True) -> dict[str, Any]:
+    async def get_version(ref: str, version: int, include_config: bool = True,
+                          workspace: str | None = None) -> dict[str, Any]:
         """One version in full. With `include_config` the preprocessing, decoder, thresholds
         and class list that travel with it are returned - that is what to read when a
         model behaves oddly."""
-        row = await client.get(f"/v1/models/{ref}/versions/{version}")
+        row = await client.get(f"/v1/models/{ref}/versions/{version}", workspace=workspace)
         return trim.version_detail(row, include_config)
 
     @mcp.tool(annotations=READ)
     @guard
-    async def compare_versions(ref: str, left: int, right: int) -> dict[str, Any]:
+    async def compare_versions(ref: str, left: int, right: int,
+                               workspace: str | None = None) -> dict[str, Any]:
         """Side-by-side of two versions: config differences, metric differences and the
         traffic each has served."""
-        row = await client.get(f"/v1/models/{ref}/version-compare",
+        row = await client.get(f"/v1/models/{ref}/version-compare", workspace=workspace,
                                params={"left": left, "right": right})
         return {
             "left": trim.version_row(row.get("left") or {}),
@@ -95,29 +110,30 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_overview() -> dict[str, Any]:
-        """The instance health page: counts, replicas ready vs desired, request/error/latency
+    async def get_overview(workspace: str | None = None) -> dict[str, Any]:
+        """The workspace's health page: counts, replicas ready vs desired, request/error/latency
         summary, every runtime, the most recent failures and firing alerts. Start here."""
-        return trim.overview(await client.get("/v1/overview"))
+        return trim.overview(await client.get("/v1/overview", workspace=workspace))
 
     @mcp.tool(annotations=READ)
     @guard
     async def get_metrics(window_minutes: int = 60, model_id: str | None = None,
-                          version_id: str | None = None,
-                          include_series: bool = False) -> dict[str, Any]:
+                          version_id: str | None = None, include_series: bool = False,
+                          workspace: str | None = None) -> dict[str, Any]:
         """Requests, errors, error rate, images, rps and p50/p95/p99 over a window, with
         per-stage latency and a status breakdown. Narrow to a model or version by id;
         `include_series` adds the time series the chart is drawn from."""
-        row = await client.get("/v1/metrics/summary", params={
+        row = await client.get("/v1/metrics/summary", workspace=workspace, params={
             "window_minutes": window_minutes, "model_id": model_id, "version_id": version_id,
         })
         return trim.metrics_summary(row, include_series)
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_errors(since_hours: int = 24, model_id: str | None = None) -> dict[str, Any]:
+    async def get_errors(since_hours: int = 24, model_id: str | None = None,
+                         workspace: str | None = None) -> dict[str, Any]:
         """Error breakdown by code and model over the period."""
-        rows = await client.get("/v1/metrics/errors",
+        rows = await client.get("/v1/metrics/errors", workspace=workspace,
                                 params={"since_hours": since_hours, "model_id": model_id})
         return {"items": rows, "since_hours": since_hours}
 
@@ -132,12 +148,12 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
                                 min_confidence: float | None = None,
                                 max_confidence: float | None = None,
                                 flagged: bool | None = None, has_capture: bool | None = None,
-                                since_hours: int = 24, limit: int = 50,
-                                offset: int = 0) -> dict[str, Any]:
+                                since_hours: int = 24, limit: int = 50, offset: int = 0,
+                                workspace: str | None = None) -> dict[str, Any]:
         """The inference log. `status` is ok | error | timeout | rejected; `route` is
         primary | canary | shadow; `has_capture=true` keeps rows whose image was stored,
         which `get_inference` can then show. Newest first."""
-        rows = await client.get("/v1/inferences", params={
+        rows = await client.get("/v1/inferences", workspace=workspace, params={
             "model_id": model_id, "version_id": version_id, "tag": tag, "status": status,
             "error_code": error_code, "route": route, "request_id": request_id,
             "trace_id": trace_id, "min_latency_ms": min_latency_ms,
@@ -149,33 +165,38 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
 
     @mcp.tool(annotations=READ, structured_output=False)
     @guard
-    async def get_inference(log_id: str, include_images: bool = True,
-                            max_images: int = 2) -> list[str | Image]:
+    async def get_inference(log_id: str, include_images: bool = True, max_images: int = 2,
+                            workspace: str | None = None) -> list[str | Image]:
         """One logged inference with its full output and, when the request was captured,
         the input image and the rendered overlay as images you can look at."""
-        row = await client.get(f"/v1/inferences/{log_id}")
+        row = await client.get(f"/v1/inferences/{log_id}", workspace=workspace)
         parts: list[str | Image] = [_json(trim.inference_detail(row))]
         if include_images:
             urls = _interleave(row.get("image_urls") or [], row.get("overlay_urls") or [])
             for url in urls[: max(0, max_images) * 2]:
                 data = await client.fetch_bytes(url)
-                parts.append(to_image(data, state.settings.max_image_px))
+                try:
+                    parts.append(to_image(data, state.settings.max_image_px))
+                except ValueError:
+                    # a rejected upload is captured as sent, and what was sent may not be an image
+                    parts.append(f"(a captured file of {len(data)} bytes is not an image)")
         return parts
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_drift(version_id: str, windows: int = 48) -> dict[str, Any]:
+    async def get_drift(version_id: str, windows: int = 48,
+                        workspace: str | None = None) -> dict[str, Any]:
         """Input and confidence drift for a version: the baseline window, the current one,
         the rolled-up windows and any signals that fired."""
-        return await client.get(f"/v1/drift/{version_id}",
+        return await client.get(f"/v1/drift/{version_id}", workspace=workspace,
                                 params={"windows": windows})
 
     @mcp.tool(annotations=READ)
     @guard
-    async def list_runtimes() -> dict[str, Any]:
+    async def list_runtimes(workspace: str | None = None) -> dict[str, Any]:
         """The fleet: every runtime with device, memory, what it holds and when it last
         reported. `fresh=false` means its heartbeat is stale."""
-        rows = await client.get("/v1/runtimes")
+        rows = await client.get("/v1/runtimes", workspace=workspace)
         return {"items": [trim.runtime_row(r) for r in rows], "count": len(rows)}
 
     # ----------------------------------------------------------------- jobs
@@ -183,24 +204,24 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
     @mcp.tool(annotations=READ)
     @guard
     async def list_jobs(kind: str | None = None, status: str | None = None, limit: int = 50,
-                        offset: int = 0) -> dict[str, Any]:
+                        offset: int = 0, workspace: str | None = None) -> dict[str, Any]:
         """Background jobs: bulk and video inference, conversions, exports, imports."""
-        rows = await client.get("/v1/jobs", params={
+        rows = await client.get("/v1/jobs", workspace=workspace, params={
             "kind": kind, "status": status, "limit": _limit(limit), "offset": offset,
         })
         return trim.page([trim.job_row(r) for r in rows], _limit(limit), offset)
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_job(job_id: str) -> dict[str, Any]:
+    async def get_job(job_id: str, workspace: str | None = None) -> dict[str, Any]:
         """One job with progress, error and - once finished - its result."""
-        row = await client.get(f"/v1/jobs/{job_id}")
+        row = await client.get(f"/v1/jobs/{job_id}", workspace=workspace)
         out = trim.job_row(row)
         if row.get("status") in ("succeeded", "failed", "cancelled"):
             out["result"] = row.get("result") or {}
             if row.get("status") == "succeeded":
                 try:
-                    out["result"] = await client.get(f"/v1/jobs/{job_id}/result")
+                    out["result"] = await client.get(f"/v1/jobs/{job_id}/result", workspace=workspace)
                 except ApertureError as exc:  # the inline result is still worth returning
                     out["result_note"] = f"full result unavailable: {exc}"
         return out
@@ -209,17 +230,18 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
 
     @mcp.tool(annotations=READ)
     @guard
-    async def list_workflows() -> dict[str, Any]:
+    async def list_workflows(workspace: str | None = None) -> dict[str, Any]:
         """Workflows: several models served as one endpoint. Shows status, the models each
         uses and 24 h traffic."""
-        rows = await client.get("/v1/workflows")
+        rows = await client.get("/v1/workflows", workspace=workspace)
         return {"items": [trim.workflow_row(r) for r in rows], "count": len(rows)}
 
     @mcp.tool(annotations=READ)
     @guard
-    async def get_workflow(slug: str, include_graph: bool = True) -> dict[str, Any]:
+    async def get_workflow(slug: str, include_graph: bool = True,
+                           workspace: str | None = None) -> dict[str, Any]:
         """One workflow, with its node graph (input, gates, models, crops, results)."""
-        row = await client.get(f"/v1/workflows/{slug}")
+        row = await client.get(f"/v1/workflows/{slug}", workspace=workspace)
         return trim.workflow_row(row, include_graph)
 
     # ------------------------------------------------------------ reference
@@ -243,10 +265,11 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
     @guard
     async def search_audit(action: str | None = None, actor: str | None = None,
                            target_type: str | None = None, since_hours: int = 24 * 30,
-                           limit: int = 50, offset: int = 0) -> dict[str, Any]:
+                           limit: int = 50, offset: int = 0,
+                           workspace: str | None = None) -> dict[str, Any]:
         """Who changed what: every mutating action on this instance, newest first. `action`
         is exact (e.g. tag.move, deployment.rollback); `actor` matches the label."""
-        rows = await client.get("/v1/audit", params={
+        rows = await client.get("/v1/audit", workspace=workspace, params={
             "action": action, "actor": actor, "target_type": target_type,
             "since_hours": since_hours, "limit": _limit(limit), "offset": offset,
         })

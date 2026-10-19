@@ -48,12 +48,15 @@ from app.schemas.workflow import (
     WorkflowRunSummary,
     WorkflowValidateOut,
 )
+from app.schemas.workspace import (
+    MemberIn,
+    MemberOut,
+    WorkspaceIn,
+    WorkspaceOut,
+    WorkspacePatch,
+)
 
 __all__ = [
-    "InstanceSettingsOut",
-    "InstanceSettingsPatch",
-    "UserInviteIn",
-    "UserPatch",
     "SECRET_PARAM_HINTS",
     "AlertRuleIn",
     "AlertRuleOut",
@@ -74,8 +77,12 @@ __all__ = [
     "HookValidateOut",
     "InferenceLogDetail",
     "InferenceLogOut",
+    "InstanceSettingsOut",
+    "InstanceSettingsPatch",
     "JobOut",
     "LoginRequest",
+    "MemberIn",
+    "MemberOut",
     "MetricsSummary",
     "ModelIn",
     "ModelOut",
@@ -103,7 +110,9 @@ __all__ = [
     "UploadInit",
     "UploadSessionOut",
     "UsageRow",
+    "UserInviteIn",
     "UserOut",
+    "UserPatch",
     "ValidationOut",
     "VersionCompare",
     "VersionCreate",
@@ -116,5 +125,8 @@ __all__ = [
     "WorkflowRunOut",
     "WorkflowRunSummary",
     "WorkflowValidateOut",
+    "WorkspaceIn",
+    "WorkspaceOut",
+    "WorkspacePatch",
     "redact_secrets",
 ]

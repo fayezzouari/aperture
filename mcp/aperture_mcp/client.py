@@ -15,6 +15,8 @@ import httpx
 
 from .settings import Settings
 
+WORKSPACE_HEADER = "x-aperture-workspace"
+
 
 class ApertureError(RuntimeError):
     """Aperture's error contract: {"error": {"code", "message", "request_id", "details"}}."""
@@ -50,14 +52,21 @@ class ApertureClient:
 
     # ------------------------------------------------------------------ calls
 
-    async def get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
-        response = await self._http.get(path, params=_clean(params))
+    def _headers(self, workspace: str | None) -> dict[str, str]:
+        slug = workspace or self.settings.workspace
+        return {WORKSPACE_HEADER: slug} if slug else {}
+
+    async def get(self, path: str, *, params: dict[str, Any] | None = None,
+                  workspace: str | None = None) -> Any:
+        response = await self._http.get(path, params=_clean(params),
+                                        headers=self._headers(workspace))
         return self._body(response)
 
     async def post_json(self, path: str, body: dict[str, Any], *,
-                        params: dict[str, Any] | None = None,
+                        params: dict[str, Any] | None = None, workspace: str | None = None,
                         timeout: float | None = None) -> Any:
         response = await self._http.post(path, json=body, params=_clean(params),
+                                         headers=self._headers(workspace),
                                          timeout=timeout or self.settings.timeout_s)
         return self._body(response)
 

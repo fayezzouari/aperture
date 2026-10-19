@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useInstance, useMe, useRole } from "../lib/hooks";
+import { can, useInstance, useInstanceRole, useMe, useRole, useWorkspace, type Workspace } from "../lib/hooks";
 import { Badge, Button, ErrorNote, Field, KeyValue, Panel, PanelHeader, Spinner, Tabs, useToast } from "../components/ui";
 
+type Member = { user_id: string; email: string; name: string; role: string; provider: string };
 type User = { id: string; email: string; name: string; role: string; provider: string; is_active: boolean; last_login_at: string | null };
 type CaptureSettings = {
   capture_sample_rate: number | null;
@@ -14,22 +15,25 @@ type CaptureSettings = {
 };
 
 export default function Settings() {
-  const [tab, setTab] = useState("users");
+  const workspace = useWorkspace();
+  const [tab, setTab] = useState(workspace ? "workspace" : "users");
   const me = useMe();
   const instance = useInstance();
-  const role = useRole();
+  const role = useInstanceRole();
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-[19px] font-semibold tracking-tight">Settings</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">
-          Users, capture and retention for this instance. Your role is <span className="text-ink-2">{role}</span>.
+          The active workspace and its members, then users, capture and retention for the whole instance. Your instance role is{" "}
+          <span className="text-ink-2">{role}</span>.
         </p>
       </div>
 
       <Tabs
         tabs={[
+          ...(workspace ? [{ key: "workspace", label: "Workspace" }] : []),
           { key: "users", label: "Users" },
           { key: "privacy", label: "Capture & retention" },
           { key: "instance", label: "Instance" },
@@ -38,9 +42,144 @@ export default function Settings() {
         onChange={setTab}
       />
 
+      {tab === "workspace" && workspace ? <WorkspaceTab key={workspace.slug} workspace={workspace} myId={me.data?.id} /> : null}
       {tab === "users" ? <UsersTab role={role} myId={me.data?.id} /> : null}
       {tab === "privacy" ? <PrivacyTab role={role} /> : null}
       {tab === "instance" ? <InstanceTab instance={instance.data} /> : null}
+    </div>
+  );
+}
+
+function WorkspaceTab({ workspace, myId }: { workspace: Workspace; myId?: string }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const admin = can(workspace.role, "admin");
+  const [details, setDetails] = useState({ name: workspace.name, description: workspace.description });
+  const [adding, setAdding] = useState({ email: "", role: "viewer" });
+  const base = `/v1/workspaces/${workspace.slug}`;
+
+  const members = useQuery<Member[]>({ queryKey: ["members", workspace.slug], queryFn: () => api(`${base}/members`) });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["members", workspace.slug] });
+    queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+  };
+  const fail = (error: unknown) => toast((error as Error).message, "bad");
+
+  const rename = useMutation({
+    mutationFn: () => api(base, { method: "PATCH", body: details }),
+    onSuccess: () => {
+      toast("Workspace saved.");
+      refresh();
+    },
+    onError: fail,
+  });
+  const upsert = useMutation({
+    mutationFn: (body: { email: string; role: string }) => api(`${base}/members`, { method: "PUT", body }),
+    onSuccess: (_, body) => {
+      if (body === adding) setAdding({ email: "", role: "viewer" });
+      refresh();
+    },
+    onError: fail,
+  });
+  const remove = useMutation({
+    mutationFn: (userId: string) => api(`${base}/members/${userId}`, { method: "DELETE" }),
+    onSuccess: refresh,
+    onError: fail,
+  });
+
+  return (
+    <div className="space-y-4">
+      <Panel>
+        <PanelHeader title={workspace.name} subtitle={<span className="mono">{workspace.slug}</span>} />
+        <div className="max-w-lg space-y-3.5 px-4 py-4">
+          <Field label="Name">
+            <input className="input" value={details.name} disabled={!admin} onChange={(event) => setDetails({ ...details, name: event.target.value })} />
+          </Field>
+          <Field label="Description">
+            <textarea className="input min-h-[64px]" value={details.description} disabled={!admin} onChange={(event) => setDetails({ ...details, description: event.target.value })} />
+          </Field>
+          {admin ? (
+            <Button variant="primary" loading={rename.isPending} disabled={!details.name.trim()} onClick={() => rename.mutate()}>
+              Save
+            </Button>
+          ) : null}
+        </div>
+      </Panel>
+
+      <Panel>
+        <PanelHeader title="Members" subtitle="The role here decides what someone can do with this workspace's models and workflows. Instance admins can do everything without being listed." />
+        {members.isLoading ? (
+          <div className="flex h-24 items-center justify-center text-ink-3">
+            <Spinner size={18} />
+          </div>
+        ) : members.isError ? (
+          <div className="px-4 py-4">
+            <ErrorNote error={members.error} />
+          </div>
+        ) : (
+          <div className="scroll-x">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Provider</th>
+                  <th>Role</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(members.data ?? []).map((member) => (
+                  <tr key={member.user_id}>
+                    <td className="text-[12.5px] text-ink">
+                      {member.email}
+                      {member.user_id === myId ? <span className="ml-2 text-[11px] text-ink-3">you</span> : null}
+                    </td>
+                    <td>
+                      <Badge>{member.provider}</Badge>
+                    </td>
+                    <td>
+                      <select
+                        className="select w-[130px]"
+                        value={member.role}
+                        disabled={!admin}
+                        onChange={(event) => upsert.mutate({ email: member.email, role: event.target.value })}
+                      >
+                        <option value="viewer">viewer</option>
+                        <option value="developer">developer</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    </td>
+                    <td className="text-right">
+                      {admin ? (
+                        <Button size="sm" variant="danger" loading={remove.isPending && remove.variables === member.user_id} onClick={() => remove.mutate(member.user_id)}>
+                          Remove
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {admin ? (
+          <div className="flex flex-wrap items-end gap-3 border-t border-line px-4 py-4">
+            <Field label="Email" hint="Someone with an account on this instance.">
+              <input className="input w-[260px]" value={adding.email} onChange={(event) => setAdding({ ...adding, email: event.target.value })} />
+            </Field>
+            <Field label="Role">
+              <select className="select w-[140px]" value={adding.role} onChange={(event) => setAdding({ ...adding, role: event.target.value })}>
+                <option value="viewer">viewer</option>
+                <option value="developer">developer</option>
+                <option value="admin">admin</option>
+              </select>
+            </Field>
+            <Button variant="primary" loading={upsert.isPending && upsert.variables === adding} disabled={!adding.email} onClick={() => upsert.mutate(adding)}>
+              Add member
+            </Button>
+          </div>
+        ) : null}
+      </Panel>
     </div>
   );
 }
@@ -193,6 +332,7 @@ function PrivacyTab({ role }: { role: string }) {
 }
 
 function PrivacyForm({ role, current }: { role: string; current: CaptureSettings }) {
+  const workspaceRole = useRole();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [form, setForm] = useState({
@@ -251,24 +391,26 @@ function PrivacyForm({ role, current }: { role: string; current: CaptureSettings
               disabled={!can(role, "admin")}
             />
           </Field>
-          {can(role, "admin") ? (
-            <div className="flex gap-2">
+          <div className="flex gap-2">
+            {can(role, "admin") ? (
               <Button variant="primary" loading={save.isPending} onClick={() => save.mutate()}>
                 Save
               </Button>
-              <Button variant="danger" loading={purge.isPending} onClick={() => purge.mutate()}>
-                Purge expired now
+            ) : null}
+            {can(workspaceRole, "admin") ? (
+              <Button variant="danger" loading={purge.isPending} onClick={() => purge.mutate()} title="Only this workspace's captures">
+                Purge expired in this workspace
               </Button>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
           <ErrorNote error={save.error} />
         </div>
       </Panel>
 
       <Panel>
-        <PanelHeader title="Retraining export" subtitle="Flagged predictions leave as a COCO dataset: images plus the model's boxes to correct." />
+        <PanelHeader title="Retraining export" subtitle="This workspace's flagged predictions leave as a COCO dataset: images plus the model's boxes to correct." />
         <div className="px-4 py-4">
-          <Button loading={exportFlagged.isPending} onClick={() => exportFlagged.mutate()} disabled={!can(role, "developer")}>
+          <Button loading={exportFlagged.isPending} onClick={() => exportFlagged.mutate()} disabled={!can(workspaceRole, "developer")}>
             Export flagged predictions
           </Button>
           <p className="hint mt-2">

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.cache import invalidate_tag
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404
+from app.deps import Principal, get_model_or_404, workspace_user
 from app.errors import ApiError
 from app.models import Model, ModelVersion, Tag
 from app.schemas import TagIn, TagOut
@@ -48,10 +48,10 @@ async def _resolve_version(session: AsyncSession, model: Model, version: int | N
 
 @router.get("", response_model=list[TagOut])
 async def list_tags(ref: str,
-                    principal: Principal = Depends(current_user),
+                    principal: Principal = Depends(workspace_user),
                     session: AsyncSession = Depends(get_session)) -> list[TagOut]:
     principal.require("viewer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     rows = (
         await session.execute(
             sa.select(Tag, ModelVersion.version)
@@ -64,11 +64,11 @@ async def list_tags(ref: str,
 
 @router.put("", response_model=TagOut)
 async def set_tag(ref: str, body: TagIn, request: Request,
-                  principal: Principal = Depends(current_user),
+                  principal: Principal = Depends(workspace_user),
                   session: AsyncSession = Depends(get_session)) -> TagOut:
     """Create or move a tag. Atomic: one row update, then an explicit cache purge."""
     principal.require("developer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     version = await _resolve_version(session, model, body.version, body.version_id)
 
     tag = (
@@ -109,10 +109,10 @@ async def set_tag(ref: str, body: TagIn, request: Request,
 
 @router.post("/{name}/lock", response_model=TagOut)
 async def lock_tag(ref: str, name: str, request: Request, locked: bool = True,
-                   principal: Principal = Depends(current_user),
+                   principal: Principal = Depends(workspace_user),
                    session: AsyncSession = Depends(get_session)) -> TagOut:
     principal.require("admin")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     tag = (
         await session.execute(sa.select(Tag).where(Tag.model_id == model.id, Tag.name == name))
     ).scalar_one_or_none()
@@ -131,10 +131,10 @@ async def lock_tag(ref: str, name: str, request: Request, locked: bool = True,
 
 @router.delete("/{name}", status_code=204)
 async def delete_tag(ref: str, name: str, request: Request,
-                     principal: Principal = Depends(current_user),
+                     principal: Principal = Depends(workspace_user),
                      session: AsyncSession = Depends(get_session)) -> None:
     principal.require("developer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     tag = (
         await session.execute(sa.select(Tag).where(Tag.model_id == model.id, Tag.name == name))
     ).scalar_one_or_none()
