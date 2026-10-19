@@ -16,7 +16,7 @@ async def test_forbidden_carries_code_request_id_and_hint(server, api):
     api.routes[("GET", "/v1/models")] = httpx.Response(403, json=fx.ERROR_403)
     text = await call_error(server, "list_models")
     assert "insufficient_role: this action needs the 'developer' role" in text
-    assert "(request req-403)" in text and "Aperture admin" in text
+    assert "(request req-403)" in text and "workspace admin" in text
 
 
 async def test_rejected_token_points_at_the_tokens_page(settings):
@@ -63,8 +63,9 @@ async def test_pat_mode_offers_everything(server):
 
 def test_settings_from_env():
     settings = load_settings({"APERTURE_URL": "http://localhost:8080/",
-                              "APERTURE_TOKEN": "ap_pat_x.y"})
+                              "APERTURE_TOKEN": "ap_pat_x.y", "APERTURE_WORKSPACE": "cloud"})
     assert settings.url == "http://localhost:8080" and settings.mode == "pat"
+    assert settings.workspace == "cloud"
     assert load_settings({"APERTURE_URL": "http://x", "APERTURE_TOKEN": "eyJ..."}).mode == "session"
     with pytest.raises(ConfigError, match="APERTURE_TOKEN"):
         load_settings({"APERTURE_URL": "http://x"})
