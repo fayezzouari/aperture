@@ -243,9 +243,18 @@ def _suffix(key: str) -> str:
     return f".{name.rsplit('.', 1)[-1]}" if "." in name else ""
 
 
-def weights_key(model_slug: str, version: int, filename: str) -> str:
-    return f"{model_slug}/v{version}/{filename}"
+def model_prefix(workspace_id: str, model_slug: str) -> str:
+    """The directory a model's weights and captures live under, without a trailing slash.
+
+    Model slugs are unique only inside a workspace, so the workspace comes first,
+    by id: a slug could equal a directory an older install already wrote to.
+    """
+    return f"{workspace_id}/{model_slug}"
 
 
-def capture_key(model_slug: str, request_id: str, index: int, ext: str) -> str:
-    return f"{model_slug}/{request_id}/{index}.{ext}"
+def weights_key(prefix: str, version: int, filename: str) -> str:
+    return f"{prefix}/v{version}/{filename}"
+
+
+def capture_key(prefix: str, request_id: str, index: int, ext: str) -> str:
+    return f"{prefix}/{request_id}/{index}.{ext}"
