@@ -1,0 +1,98 @@
+/* The user guide. Same tokens as the landing page and the console; the layout
+   is the console's: a sidebar of hairline links beside one scrolling column. */
+
+.docs-wrap { max-width: 1280px; }
+.brand .badge { margin-left: 2px; }
+.docs-menu { display: none; }
+
+.docs { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 48px; align-items: start; }
+
+/* ---- sidebar ------------------------------------------------------------- */
+.docs-side { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 24px 0 40px; scrollbar-width: thin; }
+.toc-group + .toc-group { margin-top: 18px; }
+.toc-label { padding: 0 10px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.toc ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.toc a { display: block; padding: 5px 10px; border-radius: 6px; font-size: 13px; color: var(--ink-3); transition: background 120ms ease, color 120ms ease; }
+.toc a:hover { background: #111113; color: var(--ink-2); }
+.toc a[aria-current="true"] { background: #1a1a1e; color: var(--ink); }
+.toc-sections { margin: 2px 0 6px 10px !important; padding-left: 8px !important; border-left: 1px solid var(--line); }
+.toc-sections a { font-size: 12.5px; padding: 3px 8px; }
+.toc-sections a[aria-current="true"] { background: transparent; color: var(--ink); }
+
+/* ---- content ------------------------------------------------------------- */
+.docs-main { min-width: 0; padding-bottom: 80px; }
+.docs-hero { padding: 48px 0 40px; }
+.docs-hero h1 { margin-top: 10px; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -0.025em; max-width: 22ch; }
+.docs-hero .lede { margin-top: 16px; color: var(--ink-2); max-width: 68ch; }
+
+.chapter { padding-block: 48px 8px; border-top: 1px solid var(--line); scroll-margin-top: 8px; }
+.chapter > h2 { margin-top: 6px; font-size: clamp(22px, 2.4vw, 28px); line-height: 1.2; }
+.chapter-lede { margin-top: 10px; color: var(--ink-2); max-width: 70ch; }
+.chapter-lede p + p { margin-top: 10px; }
+
+.docs-section { margin-top: 40px; scroll-margin-top: 16px; max-width: 880px; }
+.docs-section h3 { font-size: 16px; letter-spacing: -0.01em; }
+.docs-section h3 a:hover { color: var(--ink-2); }
+.docs-section > p, .docs-section > ul, .docs-section > .rows, .docs-section > .note,
+.docs-section > .shot-frame, .docs-section > .steps, .docs-section > .code { margin-top: 14px; }
+.docs-section p { color: var(--ink-2); font-size: 14.5px; }
+.docs-section p b, .docs-section li b { color: var(--ink); font-weight: 600; }
+.docs-section ul { padding-left: 18px; color: var(--ink-2); font-size: 14.5px; display: grid; gap: 6px; }
+.docs-section code, .steps code, .rows code, .note code {
+  font-size: 12.5px; color: var(--ink); background: var(--raised); border: 1px solid var(--line-2);
+  border-radius: var(--r-badge); padding: 1px 5px;
+}
+.docs-hero code { font-size: 0.9em; color: var(--ink); }
+
+/* numbered steps: hairline rows with a mono counter */
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+.steps > li {
+  counter-increment: step; position: relative; padding: 12px 0 12px 44px; border-top: 1px solid var(--line);
+  color: var(--ink-2); font-size: 14.5px;
+}
+.steps > li:last-child { border-bottom: 1px solid var(--line); }
+.steps > li::before {
+  content: counter(step, decimal-leading-zero); position: absolute; left: 0; top: 12px;
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.steps > li > .shot-frame { margin-top: 12px; }
+.steps > li ul { margin-top: 6px; }
+
+/* a console label inline: looks like the control it names */
+.ui {
+  display: inline-flex; align-items: center; height: 21px; padding: 0 7px; border-radius: 6px; vertical-align: 1px;
+  border: 1px solid var(--line-2); background: var(--raised); color: var(--ink); font-size: 12.5px; font-weight: 500; white-space: nowrap;
+}
+.field-name { color: var(--ink); font-weight: 500; border-bottom: 1px dashed var(--line-2); }
+.badge.role { height: 18px; font-size: 10.5px; font-family: var(--mono); vertical-align: 1px; margin: 0 4px; }
+.steps > li > .badge.role:first-child, .docs-section > p > .badge.role:first-child { margin-left: 0; }
+
+/* notes: one accent line on the left, colour only for warnings */
+.note { border: 1px solid var(--line); border-left: 2px solid var(--line-2); background: var(--panel); border-radius: 8px; padding: 10px 14px; font-size: 13.5px; color: var(--ink-2); }
+.note b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 2px; }
+.note-tip { border-left-color: var(--accent); }
+.note-warn { border-left-color: var(--warn); }
+.note-warn b { color: var(--warn); }
+
+.code pre { padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; color: var(--ink-2); overflow-x: auto; white-space: pre; }
+
+/* screenshots: a panel with the page's address in the header */
+.shot-frame { margin: 0; }
+.shot-bar { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 8px 0 12px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--ink-3); }
+.shot-bar .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shot-bar .dots { display: inline-flex; gap: 5px; }
+.shot-bar .dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); display: block; }
+.shot-img { display: block; width: 100%; padding: 0; border: 0; background: var(--panel); cursor: zoom-in; }
+.shot-img img { width: 100%; height: auto; aspect-ratio: 1440 / 900; }
+.shot-frame figcaption { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+
+.lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, 0.88); backdrop-filter: blur(4px); cursor: zoom-out; }
+.lightbox img { max-width: min(100%, 1920px); max-height: 100%; border: 1px solid var(--line-2); border-radius: 10px; }
+
+@media (max-width: 960px) {
+  .docs { grid-template-columns: 1fr; gap: 0; }
+  .docs-menu { display: inline-flex; }
+  .docs-side { display: none; position: fixed; inset: 56px 0 0 0; z-index: 50; max-height: none; padding: 16px; background: var(--surface); border-top: 1px solid var(--line); }
+  .docs-side.open { display: block; }
+  .steps > li { padding-left: 34px; }
+}
