@@ -4,13 +4,16 @@ Design notes that matter for latency:
   * images are never decoded here; raw bytes are forwarded and the runtime (which
     must decode anyway) returns the dimensions and input statistics
   * logging and payload capture happen after the response is on the wire
-  * a replica that refuses with backpressure is *not* retried elsewhere - the
-    queue is full on purpose and hiding it would only move the pileup (R4.3)
+  * a replica is picked by load: what its last heartbeat reported in flight and
+    queued for the version, plus what this process has sent it since
+  * a request is retried at most once, on a different replica, and only when
+    the first one never started on it (could not connect, does not hold the
+    version, or refused with queue_full). A second refusal goes back to the
+    caller: backpressure is still reported, not hidden (R4.3)
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import ipaddress
@@ -24,10 +27,10 @@ from urllib.parse import urlparse
 
 import httpx
 import sqlalchemy as sa
+from aperture_core.configspec import OVERRIDABLE_THRESHOLDS
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aperture_core.configspec import OVERRIDABLE_THRESHOLDS
-from app.cache import healthy_runtimes_for_version, next_replica_index
+from app.cache import evict_replica, healthy_runtimes_for_version, next_replica_index
 from app.errors import ApiError
 from app.models import Deployment, Model, ModelVersion
 from app.services.resolver import Resolved, resolve
@@ -86,6 +89,7 @@ class RuntimeReply:
     overlays: list[str]
     stats: list[dict]
     batch_executed: int
+    retried: bool = False
 
 
 # --------------------------------------------------------------------- intake
@@ -238,16 +242,86 @@ async def choose_targets(session: AsyncSession, model: Model, resolved: Resolved
     return answering, shadows
 
 
-async def pick_replica(version_id: str, model_slug: str) -> dict:
-    replicas = await healthy_runtimes_for_version(version_id)
+# Requests this process has in flight per (runtime, version). The heartbeat's
+# numbers are seconds old; without these, every request between two heartbeats
+# would land on whichever replica looked idle at the last one.
+_sent: dict[tuple[str, str], int] = {}
+
+# Runtime answers that mean it never started on the request, so trying another
+# replica cannot run the work twice.
+RETRYABLE = frozenset({"no_replica_available", "queue_full"})
+MIN_RETRY_BUDGET_MS = 200
+
+
+def replica_load(replica: dict, version_id: str) -> int:
+    reported = int((replica.get("in_flight") or {}).get(version_id, 0)) + \
+        int((replica.get("queues") or {}).get(version_id, 0))
+    return reported + _sent.get((replica.get("runtime_id", ""), version_id), 0)
+
+
+async def pick_replica(version_id: str, model_slug: str, *,
+                       exclude: frozenset[str] = frozenset()) -> dict:
+    """The least-loaded replica serving this version; round-robin among equals."""
+    replicas = [r for r in await healthy_runtimes_for_version(version_id)
+                if r.get("runtime_id") not in exclude]
     if not replicas:
         raise ApiError(
             "no_replica_available",
             f"no healthy replica currently holds this version of {model_slug}",
             details={"version_id": version_id},
         )
-    index = await next_replica_index(version_id, len(replicas))
-    return replicas[index % len(replicas)]
+    loads = [replica_load(r, version_id) for r in replicas]
+    lightest = min(loads)
+    candidates = sorted((r for r, load in zip(replicas, loads) if load == lightest),
+                        key=lambda r: r.get("runtime_id", ""))
+    index = await next_replica_index(version_id, len(candidates))
+    return candidates[index % len(candidates)]
+
+
+async def dispatch(version_id: str, model_slug: str, payload: dict, *, timeout_ms: int,
+                   trace_headers: dict[str, str]) -> RuntimeReply:
+    """Pick a replica and call it, retrying once elsewhere if it never started."""
+    started = time.monotonic()
+    replica = await pick_replica(version_id, model_slug)
+    try:
+        return await _call_tracked(replica, version_id, payload, timeout_ms=timeout_ms,
+                                   trace_headers=trace_headers)
+    except ApiError as exc:
+        first_id = replica.get("runtime_id", "")
+        connect_failed = exc.code == "upstream_error" and (exc.details or {}).get("connect_failed")
+        if exc.code not in RETRYABLE and not connect_failed:
+            raise
+        if exc.code == "no_replica_available" or connect_failed:
+            await evict_replica(version_id, first_id)
+        remaining = timeout_ms - int((time.monotonic() - started) * 1000)
+        if remaining < MIN_RETRY_BUDGET_MS:
+            raise
+        try:
+            second = await pick_replica(version_id, model_slug, exclude=frozenset({first_id}))
+        except ApiError:
+            raise exc from None
+        log.info("retrying on another replica", extra={
+            "code": exc.code, "version_id": version_id, "from_runtime": first_id,
+            "to_runtime": second.get("runtime_id"), "request_id": payload.get("request_id")})
+        reply = await _call_tracked(second, version_id, {**payload, "deadline_ms": remaining},
+                                    timeout_ms=remaining, trace_headers=trace_headers)
+        reply.retried = True
+        return reply
+
+
+async def _call_tracked(replica: dict, version_id: str, payload: dict, *, timeout_ms: int,
+                        trace_headers: dict[str, str]) -> RuntimeReply:
+    key = (replica.get("runtime_id", ""), version_id)
+    _sent[key] = _sent.get(key, 0) + 1
+    try:
+        return await call_runtime(replica, payload, timeout_ms=timeout_ms,
+                                  trace_headers=trace_headers)
+    finally:
+        left = _sent.get(key, 1) - 1
+        if left > 0:
+            _sent[key] = left
+        else:
+            _sent.pop(key, None)
 
 
 # ------------------------------------------------------------------- dispatch
@@ -269,8 +343,14 @@ async def call_runtime(replica: dict, payload: dict, *, timeout_ms: int,
             "timeout", f"the runtime did not answer within {timeout_ms} ms",
             details={"runtime_id": replica.get("runtime_id"), "timeout_ms": timeout_ms},
         ) from exc
-    except httpx.HTTPError as exc:
+    except httpx.ConnectError as exc:
+        # nothing reached the runtime, so the request is safe to send elsewhere
         raise ApiError("upstream_error", f"could not reach the runtime: {exc}",
+                       details={"runtime_id": replica.get("runtime_id"),
+                                "connect_failed": True}) from exc
+    except httpx.HTTPError as exc:
+        # the connection broke after the request went out: it may have run
+        raise ApiError("upstream_error", f"the runtime connection failed: {exc}",
                        details={"runtime_id": replica.get("runtime_id")}) from exc
 
     if response.status_code >= 400:
@@ -321,15 +401,14 @@ async def mirror_to_shadow(shadows: list[Target], images: list[InputImage], *, r
     """R2.7 - shadow traffic: run it, keep the telemetry, discard the answer."""
     for target in shadows:
         try:
-            replica = await pick_replica(target.version.id, "shadow")
             payload = build_runtime_payload(
                 target, images, request_id=f"{request_id}-shadow", overrides=overrides,
                 want_overlay=False, extra=None,
                 deadline_ms=target.deployment.request_timeout_ms,
             )
-            await call_runtime(replica, payload,
-                               timeout_ms=target.deployment.request_timeout_ms,
-                               trace_headers=trace_headers)
+            await dispatch(target.version.id, "shadow", payload,
+                           timeout_ms=target.deployment.request_timeout_ms,
+                           trace_headers=trace_headers)
         except ApiError as exc:
             log.info("shadow request failed", extra={"code": exc.code, "request_id": request_id})
         except Exception:

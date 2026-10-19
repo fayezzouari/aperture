@@ -46,6 +46,18 @@ class RuntimeSettings(BaseSettings):
     # of its weights file, and never below the floor.
     memory_estimate_factor: float = 3.0
     memory_min_version_mb: int = 64
+    # Requests are admitted against the same budget: a request reserves its
+    # decoded RGB size (width x height x 3, read from the image header) times
+    # this factor, which covers the tensor, the batch and full-resolution masks.
+    # One that does not fit next to what is already in flight gets queue_full.
+    request_memory_factor: float = 6.0
+    # Requests may use memory up to this line (0 = this fraction of the cgroup
+    # limit, or of host RAM); past it the kernel would kill the process.
+    request_memory_ceiling_mb: int = 0
+    # each image also reserves the activation memory measured at warm-up, never
+    # less than this floor (warm-up can under-measure once the arena is primed)
+    request_activation_min_mb: int = 16
+    request_memory_ceiling_fraction: float = 0.95
     log_level: str = "INFO"
     build: str = "aperture-runtime/0.1.0"
 

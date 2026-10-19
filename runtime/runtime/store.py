@@ -17,13 +17,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import numpy as np
-from botocore.exceptions import ClientError
-
 from aperture_core.configspec import Backend as BackendKind
 from aperture_core.configspec import ModelConfig
+from botocore.exceptions import ClientError
+
 from runtime.backends.base import Backend, BackendLoadError
 from runtime.batcher import Batcher
-from runtime.memory import Ledger, budget_mb, estimate_mb, rss_mb
+from runtime.memory import Admission, Ledger, budget_mb, estimate_mb, rss_mb
 from runtime.settings import settings
 
 log = logging.getLogger("runtime.store")
@@ -41,6 +41,9 @@ class Loaded:
     detail: str = ""
     loaded_at: datetime | None = None
     memory_mb: int = 0       # measured resident cost once loaded
+    # working memory one image adds to a forward pass (activations), measured at
+    # warm-up; requests reserve it per image on top of their decoded size
+    activation_mb: int = 0
     needs_mb: int = 0        # what admission expected it to cost
     requests: int = 0
     batches: int = 0
@@ -74,6 +77,7 @@ class ModelStore:
         self._admission = asyncio.Lock()
         os.makedirs(settings.cache_dir, exist_ok=True)
         self.ledger = Ledger(os.path.join(settings.cache_dir, "memory-costs.json"))
+        self.requests = Admission()  # in-flight working memory, see memory.Admission
 
     # ------------------------------------------------------------------ access
 
@@ -89,7 +93,8 @@ class ModelStore:
     def memory(self) -> dict:
         """What the heartbeat tells the deployer about room for more versions."""
         budget, used = budget_mb(), rss_mb()
-        return {"budget_mb": budget, "used_mb": used, "available_mb": max(0, budget - used)}
+        return {"budget_mb": budget, "used_mb": used, "available_mb": max(0, budget - used),
+                **self.requests.summary()}
 
     # ------------------------------------------------------- desired-state sync
 
@@ -173,7 +178,16 @@ class ModelStore:
         await entry.batcher.start()
 
         entry.state = "warming"
+        built = rss_mb()
         await self._warmup(entry)
+        warmed_batch = max(entry.config.warmup.batch_sizes or [1])
+        measured = (rss_mb() - built) // max(1, warmed_batch) \
+            if entry.config.warmup.iterations > 0 else 0
+        act_key = f"{key}:activation"
+        entry.activation_mb = max(measured, self.ledger.get(act_key) or 0,
+                                  settings.request_activation_min_mb)
+        self.ledger.record(act_key, entry.activation_mb)
+        self.requests.warmed(entry.version_id, warmed_batch)
 
         entry.state = "ready"
         entry.loaded_at = datetime.now(UTC)
@@ -185,6 +199,7 @@ class ModelStore:
             "version": entry.version, "provider": backend.io.provider,
             "load_seconds": round(time.perf_counter() - started, 2),
             "memory_mb": entry.memory_mb, "estimated_mb": need,
+            "activation_mb": entry.activation_mb,
         })
 
     async def _fetch_weights(self, assignment: dict) -> str:

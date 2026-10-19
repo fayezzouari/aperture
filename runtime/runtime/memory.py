@@ -9,16 +9,26 @@ after a restart - is a measurement rather than a guess.
 
 The budget is `AP_RUNTIME_MEMORY_BUDGET_MB` when set, otherwise a fraction of
 the container's cgroup limit, otherwise of the host's RAM.
+
+Requests draw on the same budget. Resident versions leave some headroom, and
+every in-flight request needs working memory on top: the decoded image, its
+tensor, the batch it joins, masks at the original resolution. `Admission`
+reserves that per request before anything is decoded, so a burst of large
+images is turned away with a retryable queue_full instead of getting the
+process cgroup-OOM-killed and every resident version reloaded.
 """
 
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import os
 import resource
 import sys
 import threading
+import time
+from dataclasses import dataclass
 
 from runtime.settings import settings
 
@@ -127,3 +137,120 @@ def estimate_mb(weights_bytes: int, measured_mb: int | None) -> int:
     weights_mb = weights_bytes / (1024 * 1024)
     return max(settings.memory_min_version_mb,
                int(weights_mb * settings.memory_estimate_factor))
+
+
+def ceiling_mb() -> int:
+    """The hard line for requests: just under the point where the kernel kills the process.
+
+    The placement budget deliberately stops short of the limit (80% by default)
+    so the rest is there for in-flight requests; requests are measured against
+    the limit itself, minus a safety margin.
+    """
+    if settings.request_memory_ceiling_mb > 0:
+        return settings.request_memory_ceiling_mb
+    return int((cgroup_limit_mb() or host_total_mb()) * settings.request_memory_ceiling_fraction)
+
+
+def request_need_mb(sizes: list[tuple[int, int]]) -> int:
+    """Working memory a request is expected to need, from its images' dimensions."""
+    decoded = sum(w * h * 3 for w, h in sizes)
+    return max(1, int(decoded * settings.request_memory_factor / (1024 * 1024)))
+
+
+@dataclass(slots=True)
+class Ticket:
+    version_id: str
+    images: int
+    reserved_mb: int
+
+
+class Admission:
+    """In-flight working memory, reserved per request below the memory ceiling.
+
+    The headroom is the ceiling minus the process's resident size when nothing
+    is in flight, so resident versions and the interpreter are already counted;
+    the reservations of requests that are still running are what gets added.
+
+    A request reserves its image buffers, plus activation memory for every image
+    that takes its version past the most it has ever run at once. Below that
+    high-water mark the inference arena already holds the room (it does not
+    shrink), and the idle size already counts it; above it the arena grows.
+    """
+
+    TRIM_EVERY_S = 2.0
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.reserved_mb = 0
+        self.in_flight = 0
+        self.idle_rss_mb = rss_mb()
+        self._last_trim = 0.0
+        self._busy: dict[str, int] = {}        # images in flight per version
+        self._high_water: dict[str, int] = {}  # most images a version's arena has held
+
+    def warmed(self, version_id: str, images: int) -> None:
+        """A version was (re)loaded and warmed at this batch size: its arena starts here."""
+        with self._lock:
+            self._high_water[version_id] = max(1, images)
+
+    def headroom_mb(self) -> int:
+        return max(0, ceiling_mb() - self.idle_rss_mb)
+
+    @staticmethod
+    def request_space_mb() -> int:
+        """Room set aside for requests by design: what the placement budget leaves free.
+
+        A request bigger than this cannot be promised anywhere, however idle; a
+        smaller one refused now only has to wait or go to another replica.
+        """
+        return max(0, ceiling_mb() - budget_mb())
+
+    def try_reserve(self, version_id: str, images: int, buffers_mb: int,
+                    activation_mb: int) -> tuple[Ticket | None, int, int]:
+        """(ticket or None, what the request needs, headroom). Never blocks."""
+        with self._lock:
+            if self.in_flight == 0:
+                self.idle_rss_mb = rss_mb()
+            headroom = self.headroom_mb()
+            busy = self._busy.get(version_id, 0) + images
+            beyond = max(0, busy - self._high_water.get(version_id, 1))
+            need = buffers_mb + activation_mb * beyond
+            if self.reserved_mb + need > headroom:
+                return None, need, headroom
+            self.reserved_mb += need
+            self.in_flight += 1
+            self._busy[version_id] = busy
+            self._high_water[version_id] = max(self._high_water.get(version_id, 1), busy)
+            return Ticket(version_id, images, need), need, headroom
+
+    def release(self, ticket: Ticket) -> None:
+        with self._lock:
+            self.reserved_mb = max(0, self.reserved_mb - ticket.reserved_mb)
+            self.in_flight = max(0, self.in_flight - 1)
+            left = self._busy.get(ticket.version_id, 0) - ticket.images
+            if left > 0:
+                self._busy[ticket.version_id] = left
+            else:
+                self._busy.pop(ticket.version_id, None)
+            idle = self.in_flight == 0
+        if idle:
+            self._trim()
+
+    def _trim(self) -> None:
+        # glibc keeps freed request buffers in its heap; hand them back so the
+        # idle size the next burst is measured against does not creep upward
+        now = time.monotonic()
+        if now - self._last_trim < self.TRIM_EVERY_S or not sys.platform.startswith("linux"):
+            return
+        self._last_trim = now
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except (OSError, AttributeError):
+            pass
+
+    def summary(self) -> dict:
+        with self._lock:
+            if self.in_flight == 0:
+                self.idle_rss_mb = rss_mb()  # keep the reported headroom current
+        return {"inflight_requests": self.in_flight, "inflight_reserved_mb": self.reserved_mb,
+                "request_headroom_mb": self.headroom_mb(), "ceiling_mb": ceiling_mb()}

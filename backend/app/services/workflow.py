@@ -35,8 +35,7 @@ from app.security import key_allows_model
 from app.services.gateway import (
     InputImage,
     build_runtime_payload,
-    call_runtime,
-    pick_replica,
+    dispatch,
     resolve_target,
     sanitise_overrides,
 )
@@ -345,16 +344,15 @@ class WorkflowEngine:
         for key in {k for item in items for k in item.inputs}:
             named[key] = [item.inputs.get(key, [0.0, 0.0, 0.0, 0.0]) for item in items]
 
-        replica = await pick_replica(target.version.id, model.slug)
         payload = build_runtime_payload(
             target, [item.as_input_image() for item in items],
             request_id=f"{self.request_id}:{stat.node_id}", overrides=overrides,
             want_overlay=False, extra=None,
             deadline_ms=target.deployment.request_timeout_ms, inputs=named or None,
         )
-        reply = await call_runtime(replica, payload,
-                                  timeout_ms=target.deployment.request_timeout_ms,
-                                  trace_headers=self.trace_headers)
+        reply = await dispatch(target.version.id, model.slug, payload,
+                               timeout_ms=target.deployment.request_timeout_ms,
+                               trace_headers=self.trace_headers)
         self.model_calls += 1
 
         # results stay aligned with the items that produced them
