@@ -53,8 +53,8 @@ def store(monkeypatch):
 
 
 @pytest.fixture
-async def model(db):
-    row = Model(slug="cells", name="Cells", task="detect")
+async def model(db, workspace):
+    row = Model(workspace_id=workspace.id, slug="cells", name="Cells", task="detect")
     db.add(row)
     await db.flush()
     db.add_all([ModelVersion(model_id=row.id, version=1, status="draft"),
