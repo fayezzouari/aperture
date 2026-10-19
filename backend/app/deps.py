@@ -139,22 +139,27 @@ async def inference_principal(
 
     if raw_key:
         principal = await principal_for_key(request, session, raw_key)
-        return await narrow_key(request, principal, session)
+        return await key_workspace(request, principal, session)
 
     principal = await current_user(request, session)
     return await enter_workspace(request, principal, session)
 
 
-async def narrow_key(request: Request, principal: Principal, session: AsyncSession,
-                     slug: str | None = None) -> Principal:
-    """An API key is instance-wide; a named workspace only narrows what a slug means."""
-    slug = slug or request.headers.get(WORKSPACE_HEADER)
-    if slug:
-        principal.workspace = (
-            await session.execute(sa.select(Workspace).where(Workspace.slug == slug))
-        ).scalar_one_or_none()
-        if principal.workspace is None:
-            raise ApiError("not_found", f"no workspace '{slug}'")
+async def key_workspace(request: Request, principal: Principal,
+                        session: AsyncSession) -> Principal:
+    """An API key acts in the workspace it belongs to, and only there.
+
+    The header is optional for a key; naming a different workspace is refused
+    rather than ignored, so a misconfigured client finds out at once.
+    """
+    workspace = await session.get(Workspace, principal.api_key.workspace_id)
+    if workspace is None:
+        raise ApiError("api_key_invalid", "the workspace of this API key no longer exists")
+    named = request.headers.get(WORKSPACE_HEADER)
+    if named and named != workspace.slug:
+        raise ApiError("forbidden", f"this API key belongs to workspace '{workspace.slug}', "
+                                    f"not '{named}'")
+    principal.workspace = workspace
     return principal
 
 
@@ -278,27 +283,17 @@ async def workspace_user(
     return await enter_workspace(request, principal, session, workspace)
 
 
-async def get_model_or_404(session: AsyncSession, ref: str,
-                           workspace_id: str | None) -> Model:
-    """A model by slug or id, inside a workspace.
-
-    `workspace_id` is None only for an API key that named no workspace: keys are
-    instance-wide, so the slug is looked up across every workspace and has to be
-    unambiguous. An id always is.
-    """
-    stmt = sa.select(Model).where(sa.or_(Model.slug == ref, Model.id == ref))
-    if workspace_id is not None:
-        stmt = stmt.where(Model.workspace_id == workspace_id)
-    found = list((await session.execute(stmt.limit(2))).scalars().all())
-    if not found:
-        raise ApiError("model_not_found", f"no model '{ref}'")
-    if len(found) > 1:
-        raise ApiError(
-            "invalid_request",
-            f"more than one workspace has a model '{ref}' - name the workspace in the "
-            "X-Aperture-Workspace header, or call the model by its id",
+async def get_model_or_404(session: AsyncSession, ref: str, workspace_id: str | None) -> Model:
+    """A model by slug or id, inside the caller's workspace."""
+    found = (
+        await session.execute(
+            sa.select(Model).where(Model.workspace_id == workspace_id,
+                                   sa.or_(Model.slug == ref, Model.id == ref))
         )
-    return found[0]
+    ).scalar_one_or_none()
+    if found is None:
+        raise ApiError("model_not_found", f"no model '{ref}' in this workspace")
+    return found
 
 
 @dataclass(slots=True)
