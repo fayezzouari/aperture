@@ -39,11 +39,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=4s --start-period=25s --retries=4 \
     CMD curl -fsS http://localhost:8000/healthz || exit 1
 
-# Uvicorn with several workers: the gateway is IO-bound, so processes buy
-# concurrency without any of them owning a GPU.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--workers", "4", "--timeout-keep-alive", "65", "--no-access-log", \
-     "--proxy-headers", "--forwarded-allow-ips", "*"]
+# Migrate, then serve with several uvicorn workers; see serve.sh.
+CMD ["/app/backend/serve.sh"]
 
 
 # --------------------------------------------------------------- converter ---
