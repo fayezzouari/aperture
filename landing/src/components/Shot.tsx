@@ -1,14 +1,17 @@
-/** A console screenshot. All images are 1440×900 at 2× and live in docs/screenshots. */
+/**
+ * A console screenshot. The landing page shares the user guide's images: 1440×900
+ * at 2×, taken in the e2e workspace by scripts/guide_screenshots.py.
+ */
 export const shots = {
-  overview: "/screenshots/overview.png",
-  models: "/screenshots/models.png",
-  modelDetail: "/screenshots/model-detail.png",
-  workflows: "/screenshots/workflows.png",
-  workflowEditor: "/screenshots/workflow-editor.png",
-  jobs: "/screenshots/jobs.png",
-  fleet: "/screenshots/fleet.png",
-  keys: "/screenshots/keys.png",
-  audit: "/screenshots/audit.png",
+  overview: "/screenshots/guide/overview.webp",
+  models: "/screenshots/guide/models-list.webp",
+  modelDetail: "/screenshots/guide/model-versions.webp",
+  workflows: "/screenshots/guide/workflows-list.webp",
+  workflowEditor: "/screenshots/guide/workflow-editor.webp",
+  jobs: "/screenshots/guide/jobs.webp",
+  fleet: "/screenshots/guide/fleet.webp",
+  keys: "/screenshots/guide/keys.webp",
+  audit: "/screenshots/guide/audit.webp",
 } as const;
 
 export type ShotKey = keyof typeof shots;
