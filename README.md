@@ -29,6 +29,12 @@ asserts the guarantees below (65 checks).
 
 ## A look around
 
+The step-by-step user guide - every page and dialog, with screenshots taken in
+the `e2e` workspace - is part of the landing site at `/docs/`
+(`cd landing && npm run dev`, then open http://localhost:5174/docs/). Its
+screenshots are regenerated with `make guide-shots` against a running stack
+after `make e2e`.
+
 Screenshots from a running instance. Model names are blurred; everything else
 is as the console renders it. `landing/` is a one-page React tour built from
 the same images (`cd landing && npm install && npm run dev`, or
