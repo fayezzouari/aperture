@@ -22,7 +22,7 @@ nginx ────────────────────────�
 api  ┌──────────────────────────────────────────────────────────────────┐
      │ 1. authenticate: API key (hash compare) or session JWT          │
      │ 2. rate limit + quota          [redis counter, fixed window]     │
-     │ 3. resolve model               [postgres]                        │
+     │ 3. resolve workspace, model    [postgres]                        │
      │ 4. key scope check                                               │
      │ 5. read images, enforce size and count limits                    │
      │ 6. resolve {version|tag}       [redis, 5 s TTL → postgres]        │
@@ -198,13 +198,18 @@ cap exists and why a large fan-out belongs in an async job.
 ## Data model
 
 ```
-users ── personal_access_tokens        (one instance-wide role per user)
+users ─┬─ personal_access_tokens        (instance role: admin | developer | viewer)
+       └─ workspace_members ── workspaces   (a role per workspace; last_workspace_id on users)
 api_keys                               (instance-wide, optionally scoped to models)
 instance_settings                      (one row: capture policy overrides)
 
-models ─┬─ model_versions ─┬─ deployments ── assignments ── runtimes
-        │                  └─ drift_windows
-        └─ tags ──────────────▶ (points at one version)
+workspaces ─┬─ workflows
+            └─ models ─┬─ model_versions ─┬─ deployments ── assignments ── runtimes
+                       │                  └─ drift_windows
+                       └─ tags ──────────────▶ (points at one version)
+
+Rows that hang off a model (versions, deployments, inference logs, drift,
+uploads, jobs) follow its workspace through `model_id`; `app/scope.py` holds the filter.
 
 inference_logs   append-only, indexed on (model, created_at),
                  (version, created_at), (status, created_at), total_ms
