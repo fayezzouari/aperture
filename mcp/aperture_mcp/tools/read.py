@@ -175,7 +175,11 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
             urls = _interleave(row.get("image_urls") or [], row.get("overlay_urls") or [])
             for url in urls[: max(0, max_images) * 2]:
                 data = await client.fetch_bytes(url)
-                parts.append(to_image(data, state.settings.max_image_px))
+                try:
+                    parts.append(to_image(data, state.settings.max_image_px))
+                except ValueError:
+                    # a rejected upload is captured as sent, and what was sent may not be an image
+                    parts.append(f"(a captured file of {len(data)} bytes is not an image)")
         return parts
 
     @mcp.tool(annotations=READ)
