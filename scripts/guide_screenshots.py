@@ -37,8 +37,8 @@ WORKSPACE = os.environ.get("WORKSPACE", "e2e")
 EMAIL = os.environ.get("AP_EMAIL", "admin@localhost")
 PASSWORD = os.environ.get("AP_PASSWORD", "aperture")
 ONLY = {s for s in os.environ.get("ONLY", "").split(",") if s}
-MODEL = "e2e-part-detection"
-WORKFLOW = "e2e-part-detection-pipeline"
+MODEL = "e2e-orchard"
+WORKFLOW = "e2e-orchard-pipeline"
 WEBP = shutil.which("cwebp")
 
 os.makedirs(OUT, exist_ok=True)
@@ -68,7 +68,12 @@ TOKEN = json.load(urllib.request.urlopen(login))["access_token"]
 # Instance-wide pages (audit, fleet, alerts) can name models from other
 # workspaces; those names are blurred, e2e's own are not.
 SECRETS: set[str] = set()
+# The console's workspace menu shows only these two; any other workspace on the
+# instance is left out of the screenshots and its name blurred where it shows up.
+SHOWN = {WORKSPACE, "general"}
 for ws in call("GET", "/v1/workspaces", TOKEN, workspace=None):
+    if ws["slug"] not in SHOWN:
+        SECRETS |= {ws["slug"], ws["name"]}
     if ws["slug"] == WORKSPACE:
         continue
     for model in call("GET", "/v1/models?limit=500&include_archived=true", TOKEN, workspace=ws["slug"]):
@@ -80,6 +85,22 @@ OWN = {s for model in call("GET", "/v1/models?limit=500&include_archived=true", 
        for s in (model["slug"], model["name"])}
 OWN |= {s for flow in call("GET", "/v1/workflows", TOKEN) for s in (flow["slug"], flow["name"])}
 SECRETS -= OWN | {"other", "detection", "segmentation", "classification"}
+
+# The audit log is instance-wide and outlives what it names: anything it labels that
+# the e2e workspace does not have now (a deleted model, another workspace's key) is blurred.
+CURRENT = OWN | SHOWN | {"End to end", "General"} | {key["name"] for key in call("GET", "/v1/keys", TOKEN)}
+CURRENT |= {rule["name"] for rule in call("GET", "/v1/alerts", TOKEN)}
+AUDIT: list[dict] = []
+while len(AUDIT) < 5000:
+    batch = call("GET", f"/v1/audit?limit=200&offset={len(AUDIT)}&since_hours=2160", TOKEN, workspace=None)
+    AUDIT += batch
+    if len(batch) < 200:
+        break
+for row in AUDIT:
+    if row.get("target_type") in {"model", "version", "tag", "deployment", "workflow", "apikey", "workspace"}:
+        label = (row.get("target_label") or "").split(" ")[0]
+        if len(label) >= 4 and label not in CURRENT:
+            SECRETS.add(label)
 
 # A job and an alert rule, so those pages are not empty. Both are harmless: the
 # export only reads, and the rule's webhook is a placeholder that never fires.
@@ -98,7 +119,7 @@ BLUR_JS = """
 (terms) => {
   if (!terms.length) return;
   const esc = s => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
-  // whole names only: another workspace's `part-detection` must not blur half of `e2e-part-detection`
+  // whole names only: another workspace's `orchard` must not blur half of `e2e-orchard`
   const re = new RegExp('(?<![\\w-])(' + terms.sort((a, b) => b.length - a.length).map(esc).join('|') + ')(?![\\w-])', 'g');
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const hits = [];
@@ -177,6 +198,30 @@ with sync_playwright() as p:
                                   color_scheme="dark")
     page = context.new_page()
 
+    def only_shown(route):
+        response = route.fetch()
+        route.fulfill(response=response,
+                      json=[ws for ws in response.json() if ws["slug"] in SHOWN])
+
+    page.route("**/v1/workspaces", only_shown)
+
+    def only_own_rows(route):
+        # reports are instance-wide; keep the rows about the e2e workspace's models
+        response = route.fetch()
+        try:
+            report = response.json()
+        except Exception:  # noqa: BLE001 - a CSV or PDF export passes through untouched
+            return route.fulfill(response=response)
+        columns = report.get("columns", [])
+        mine = [row for row in report.get("rows", [])
+                if any(str(row.get(column, "")).split(" ")[0] in OWN for column in columns)]
+        report["rows"] = mine
+        report["totals"] = {key: sum(row.get(key) or 0 for row in mine)
+                            for key in report.get("totals", {}) if key in {"requests", "images", "errors"}}
+        route.fulfill(response=response, json=report)
+
+    page.route("**/v1/reports/run", only_own_rows)
+
     # ------------------------------------------------------------ getting started
     @step("login")
     def _():
@@ -211,8 +256,8 @@ with sync_playwright() as p:
         page.get_by_role("button", name="Active workspace").click()
         page.get_by_role("button", name="+ Add new workspace").click()
         box = dialog("New workspace")
-        box.get_by_placeholder("Cloud").fill("Cloud")
-        box.locator("textarea").fill("Models served to the cloud product.")
+        box.get_by_placeholder("Research").fill("Research")
+        box.locator("textarea").fill("Experiments before they reach the storefront.")
         shot(page, "workspace-new")
         close_dialog()
 
@@ -223,6 +268,7 @@ with sync_playwright() as p:
         goto("/", wait="Create your first workspace")
         shot(page, "workspace-first")
         page.unroute("**/v1/workspaces")
+        page.route("**/v1/workspaces", only_shown)
 
     @step("account-menu")
     def _():
@@ -242,26 +288,26 @@ with sync_playwright() as p:
     # -------------------------------------------------------------------- models
     @step("models-list")
     def _():
-        goto("/models", wait="E2E part detection")
+        goto("/models", wait="Orchard counter")
         shot(page, "models-list", 1000)
 
     @step("model-new")
     def _():
-        goto("/models", wait="E2E part detection")
+        goto("/models", wait="Orchard counter")
         page.get_by_role("button", name="New model", exact=True).first.click()
         box = dialog("New model")
-        box.get_by_placeholder("Front bumper part detection").fill("Rear bumper part detection")
-        box.get_by_placeholder("perception team").fill("perception team")
+        box.get_by_placeholder("Bird species detector").fill("Bird species detector")
+        box.get_by_placeholder("vision team").fill("vision team")
         shot(page, "model-new")
         close_dialog()
 
     @step("model-import")
     def _():
-        goto("/models", wait="E2E part detection")
+        goto("/models", wait="Orchard counter")
         page.get_by_role("button", name="Import from Roboflow").click()
         box = dialog("Import from Roboflow")
         box.get_by_placeholder("https://app.roboflow.com/workspace/project/models/project/13").fill(
-            "https://app.roboflow.com/acme/rear-bumper/models/rear-bumper/4")
+            "https://app.roboflow.com/acme/garden-birds/models/garden-birds/4")
         shot(page, "model-import")
         close_dialog()
 
@@ -337,7 +383,7 @@ with sync_playwright() as p:
         goto("/workflows", wait="Calling a workflow")
         page.get_by_role("button", name="New workflow").first.click()
         box = dialog("New workflow")
-        box.get_by_placeholder("Damage report").fill("Damage report")
+        box.get_by_placeholder("Sort and grade").fill("Sort and grade")
         shot(page, "workflows-new")
         close_dialog()
 
@@ -418,7 +464,7 @@ with sync_playwright() as p:
         goto("/alerts", wait="Recent alert events")
         page.get_by_role("button", name="New rule").first.click()
         box = dialog("New alert rule")
-        box.get_by_placeholder("Part detection error rate").fill("Part detection p99")
+        box.get_by_placeholder("Error rate above 2%").fill("Orchard p99 latency")
         shot(page, "alert-new")
         close_dialog()
 
@@ -433,7 +479,7 @@ with sync_playwright() as p:
         goto("/keys", wait="Calling the API")
         page.get_by_role("button", name="New key").first.click()
         box = dialog("New API key")
-        box.get_by_placeholder("claims-web").fill("claims-web")
+        box.get_by_placeholder("storefront-app").fill("storefront-app")
         box.get_by_role("checkbox", name="Every model").uncheck()
         box.get_by_text(MODEL, exact=True).first.click()
         shot(page, "key-new")
@@ -444,7 +490,7 @@ with sync_playwright() as p:
         once.get_by_role("button", name="Done").click()
         # tidy up: the demo key never leaves this run
         for key in call("GET", "/v1/keys", TOKEN):
-            if key["name"] == "claims-web" and not key["revoked_at"]:
+            if key["name"] == "storefront-app" and not key["revoked_at"]:
                 call("POST", f"/v1/keys/{key['id']}/revoke", TOKEN)
 
     @step("audit")
