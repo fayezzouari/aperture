@@ -10,8 +10,8 @@ routes, so the server registers just `predict` and `run_workflow` for it rather
 than offering twenty tools that would all answer 401.
 
 Without APERTURE_WORKSPACE a user's calls act in the workspace they switched
-to last in the console. An API key is instance-wide; for it the workspace only
-narrows which model a slug means when two workspaces use the same one.
+to last in the console. An API key acts in the workspace it belongs to, and
+naming any other one is refused.
 """
 
 from __future__ import annotations
