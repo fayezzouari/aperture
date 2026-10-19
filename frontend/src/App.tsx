@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { session } from "./lib/api";
-import { useInstance, useMe } from "./lib/hooks";
-import { Spinner } from "./components/ui";
+import { api, session } from "./lib/api";
+import { useInstance, useMe, useWorkspaces } from "./lib/hooks";
+import { ErrorNote, Spinner } from "./components/ui";
+import { FirstWorkspace, WorkspaceSwitcher } from "./components/workspaces";
 
 const Login = lazy(() => import("./pages/Login"));
 const Overview = lazy(() => import("./pages/Overview"));
@@ -49,6 +50,13 @@ const NAV = [
     ],
   },
 ];
+
+// pages that show one workspace's models, workflows and traffic; the rest are instance-wide
+const WORKSPACE_PAGES = ["/models", "/workflows", "/traces", "/jobs"];
+const inWorkspace = (path: string) => path === "/" || WORKSPACE_PAGES.some((prefix) => path.startsWith(prefix));
+
+// queries that do not change with the workspace, kept across a switch
+const INSTANCE_QUERIES = new Set(["me", "workspaces", "instance"]);
 
 export default function App() {
   const location = useLocation();
@@ -97,8 +105,39 @@ function Shell({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const me = useMe();
   const instance = useInstance();
+  const workspaces = useWorkspaces();
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [active, setActive] = useState<string | null>(session.workspace);
+
+  // open on the workspace this user switched to last, or the first one they can see
+  useEffect(() => {
+    const list = workspaces.data;
+    if (!list || !me.data) return;
+    if (active && list.some((workspace) => workspace.slug === active)) return;
+    const remembered = list.find((workspace) => workspace.id === me.data.last_workspace_id);
+    const pick = (remembered ?? list[0])?.slug ?? null;
+    session.workspace = pick;
+    setActive(pick);
+  }, [workspaces.data, me.data, active]);
+
+  const switchTo = useCallback(
+    (slug: string) => {
+      if (slug === session.workspace) return;
+      session.workspace = slug;
+      setActive(slug);
+      // everything workspace-shaped is dropped, so no page shows the last workspace's rows
+      queryClient.removeQueries({ predicate: (query) => !INSTANCE_QUERIES.has(String(query.queryKey[0])) });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      // a model or workflow page names something the new workspace may not have
+      if (/^\/(models|workflows)\/./.test(location.pathname)) navigate(`/${location.pathname.split("/")[1]}`);
+      api(`/v1/workspaces/${slug}/activate`, { method: "POST" })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["me"] }))
+        .catch(() => undefined); // remembering is a convenience; the switch already happened
+    },
+    [queryClient, navigate, location.pathname],
+  );
+  const current = workspaces.data?.find((workspace) => workspace.slug === active);
 
   // a route change closes the mobile drawer and the account menu
   useEffect(() => {
@@ -106,7 +145,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     setMenuOpen(false);
   }, [location.pathname]);
 
-  const role = me.data?.role === "admin" ? "Instance admin" : `Role: ${me.data?.role ?? "viewer"}`;
+  const role = me.data?.role === "admin" ? "Instance admin" : current ? `Role in ${current.name}: ${current.role}` : `Role: ${me.data?.role ?? "viewer"}`;
 
   const sidebar = (
     <div className="flex h-full flex-col">
@@ -118,6 +157,10 @@ function Shell({ children }: { children: React.ReactNode }) {
         {instance.data && instance.data.env !== "production" ? (
           <span className="badge ml-auto">{instance.data.env}</span>
         ) : null}
+      </div>
+
+      <div className="px-3 pb-2">
+        <WorkspaceSwitcher workspaces={workspaces.data ?? []} active={current} onSwitch={switchTo} />
       </div>
 
       <nav className="scroll-y flex-1 overflow-y-auto px-2 pb-4 pt-2" aria-label="Main">
@@ -177,6 +220,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
                 onClick={() => {
                   session.token = null;
+                  session.workspace = null;
                   queryClient.clear();
                   navigate("/login");
                 }}
@@ -217,7 +261,22 @@ function Shell({ children }: { children: React.ReactNode }) {
       ) : null}
 
       <div className="lg:pl-[232px]">
-        <main className="mx-auto max-w-[1440px] px-4 py-6 lg:px-6">{children}</main>
+        <main className="mx-auto max-w-[1440px] px-4 py-6 lg:px-6">
+          {!inWorkspace(location.pathname) ? (
+            children
+          ) : workspaces.data && !workspaces.data.length ? (
+            <FirstWorkspace onCreated={switchTo} />
+          ) : active && current ? (
+            // keyed so every page remounts, and refetches, in the workspace switched to
+            <div key={active}>{children}</div>
+          ) : workspaces.isError ? (
+            <ErrorNote error={workspaces.error} />
+          ) : (
+            <div className="flex h-40 items-center justify-center text-ink-3">
+              <Spinner size={18} />
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );
