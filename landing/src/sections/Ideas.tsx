@@ -77,11 +77,11 @@ function OverlayFigure() {
       <rect className="draw d2" x="140" y="22" width="60" height="60" rx="3" fill="none" stroke="#2bd97c" strokeWidth="1.5" pathLength={1} />
       <rect className="draw d3" x="218" y="46" width="68" height="40" rx="3" fill="none" stroke="#f5a524" strokeWidth="1.5" pathLength={1} />
       <rect x="40" y="22" width="82" height="12" rx="2" fill="#2bd97c" />
-      <text x="44" y="31" style={label} fill="#04140a">door_front .94</text>
+      <text x="44" y="31" style={label} fill="#04140a">kiwi .94</text>
       <rect x="140" y="10" width="60" height="12" rx="2" fill="#2bd97c" />
-      <text x="144" y="19" style={label} fill="#04140a">hood .91</text>
+      <text x="144" y="19" style={label} fill="#04140a">mango .91</text>
       <rect x="218" y="34" width="68" height="12" rx="2" fill="#f5a524" />
-      <text x="222" y="43" style={label} fill="#1a1000">scratch .62</text>
+      <text x="222" y="43" style={label} fill="#1a1000">bruise .62</text>
     </svg>
   );
 }
