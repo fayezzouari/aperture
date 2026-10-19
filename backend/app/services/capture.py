@@ -75,14 +75,14 @@ def retention_days(override_days: int | None) -> int:
 
 
 async def store_payloads(
-    *, model_slug: str, request_id: str,
+    *, prefix: str, request_id: str,
     images: list[tuple[bytes, str]], overlays: list[str],
 ) -> dict:
-    """Upload the request's images (and any overlay) and return their keys."""
+    """Upload the request's images (and any overlay) under the model's `prefix`."""
     stored: dict = {"images": [], "overlays": [], "bucket": settings.s3_bucket_captures}
     for index, (data, name) in enumerate(images):
         ext = _extension(name, data)
-        key = storage.capture_key(model_slug, request_id, index, ext)
+        key = storage.capture_key(prefix, request_id, index, ext)
         try:
             await storage.put_bytes(settings.s3_bucket_captures, key, data,
                                     content_type=f"image/{'jpeg' if ext == 'jpg' else ext}")
@@ -95,7 +95,7 @@ async def store_payloads(
             data = base64.b64decode(overlay_b64)
         except Exception:
             continue
-        key = storage.capture_key(model_slug, request_id, index, "overlay.png")
+        key = storage.capture_key(prefix, request_id, index, "overlay.png")
         try:
             await storage.put_bytes(settings.s3_bucket_captures, key, data, content_type="image/png")
             stored["overlays"].append({"key": key})
