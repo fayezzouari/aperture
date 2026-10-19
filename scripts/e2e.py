@@ -414,7 +414,10 @@ def main() -> int:
     check("issue a scoped API key", key.status_code == 201 and key.json()["key"].startswith("ap_"))
     raw_key = key.json()["key"]
 
-    keyed = httpx.Client(base_url=BASE, timeout=60.0, headers={"x-api-key": raw_key})
+    # keys are instance-wide: the header says which workspace's SLUG is meant, since
+    # an earlier run (or another workspace) can hold a model with the same slug
+    in_e2e = {"x-aperture-workspace": "e2e"}
+    keyed = httpx.Client(base_url=BASE, timeout=60.0, headers={"x-api-key": raw_key, **in_e2e})
     with_key = keyed.post(f"/v1/models/{SLUG}/production/predict",
                           files={"images": ("a.jpg", image_bytes)})
     check("the key can call the model it is scoped to", with_key.status_code == 200)
@@ -435,7 +438,7 @@ def main() -> int:
             "name": "e2e-scoped", "scopes": [SLUG], "rate_limit_rpm": 600,
         }).json()["key"]
         scoped_client = httpx.Client(base_url=BASE, timeout=60.0,
-                                     headers={"x-api-key": scoped_key})
+                                     headers={"x-api-key": scoped_key, **in_e2e})
         scoped_out = scoped_client.post(f"/v1/models/{SLUG}-other/production/predict",
                                         files={"images": ("a.jpg", image_bytes)})
         check("the key cannot reach a model outside its scope",
