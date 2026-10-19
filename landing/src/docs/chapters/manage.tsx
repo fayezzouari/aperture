@@ -71,11 +71,11 @@ export const keys: Chapter = {
           <Code title="Python and TypeScript SDKs">{`# python
 from aperture import Aperture
 client = Aperture("http://localhost:8080", api_key=os.environ["APERTURE_KEY"])
-result = client.predict("e2e-part-detection", "production", images=["photo.jpg"])
+result = client.predict("e2e-orchard", "production", images=["photo.jpg"])
 
 // typescript
 const client = new Aperture({ baseUrl: "http://localhost:8080", apiKey: process.env.APERTURE_KEY });
-const result = await client.predict("e2e-part-detection", "production", { images: [file] });`}</Code>
+const result = await client.predict("e2e-orchard", "production", { images: [file] });`}</Code>
           <Rows
             items={[
               ["401 api_key_invalid", "Unknown key, or a token sent in x-api-key."],
