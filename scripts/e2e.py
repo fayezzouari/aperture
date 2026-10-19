@@ -414,10 +414,9 @@ def main() -> int:
     check("issue a scoped API key", key.status_code == 201 and key.json()["key"].startswith("ap_"))
     raw_key = key.json()["key"]
 
-    # keys are instance-wide: the header says which workspace's SLUG is meant, since
-    # an earlier run (or another workspace) can hold a model with the same slug
-    in_e2e = {"x-aperture-workspace": "e2e"}
-    keyed = httpx.Client(base_url=BASE, timeout=60.0, headers={"x-api-key": raw_key, **in_e2e})
+    # the key belongs to the e2e workspace, so SLUG means the model there even when
+    # another workspace (or an earlier run on another branch) has the same slug
+    keyed = httpx.Client(base_url=BASE, timeout=60.0, headers={"x-api-key": raw_key})
     with_key = keyed.post(f"/v1/models/{SLUG}/production/predict",
                           files={"images": ("a.jpg", image_bytes)})
     check("the key can call the model it is scoped to", with_key.status_code == 200)
@@ -438,13 +437,20 @@ def main() -> int:
             "name": "e2e-scoped", "scopes": [SLUG], "rate_limit_rpm": 600,
         }).json()["key"]
         scoped_client = httpx.Client(base_url=BASE, timeout=60.0,
-                                     headers={"x-api-key": scoped_key, **in_e2e})
+                                     headers={"x-api-key": scoped_key})
         scoped_out = scoped_client.post(f"/v1/models/{SLUG}-other/production/predict",
                                         files={"images": ("a.jpg", image_bytes)})
         check("the key cannot reach a model outside its scope",
               scoped_out.status_code == 403
               and scoped_out.json()["error"]["code"] == "key_not_scoped_to_model",
               scoped_out.json().get("error", {}).get("code", ""))
+        elsewhere = scoped_client.post(f"/v1/models/{SLUG}/production/predict",
+                                       files={"images": ("a.jpg", image_bytes)},
+                                       headers={"x-aperture-workspace": "no-such-workspace"})
+        check("a key cannot be pointed at another workspace",
+              elsewhere.status_code == 403
+              and "belongs to workspace 'e2e'" in elsewhere.json()["error"]["message"],
+              elsewhere.text[:160] if elsewhere.status_code != 403 else "")
 
     anonymous = httpx.Client(base_url=BASE, timeout=30.0)
     unauth = anonymous.post(f"/v1/models/{SLUG}/production/predict",
@@ -707,7 +713,9 @@ def main() -> int:
           f"{len(runtimes.json())} runtimes")
 
     # --------------------------------------------------------------------- mcp
-    captured_id = captured[0]["id"] if captured else None
+    # the corrupt-image check is captured too, as the bytes it sent; skip it
+    viewable = [row for row in captured if row.get("error_code") != "invalid_image"]
+    captured_id = viewable[0]["id"] if viewable else None
     mcp_checks(agent_token, image_path, captured_id)
 
     # ------------------------------------------------------------------ tidy up
