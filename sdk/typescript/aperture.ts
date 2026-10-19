@@ -123,7 +123,7 @@ export class ApertureError extends Error {
 export interface ApertureOptions {
   baseUrl: string;
   apiKey?: string;
-  /** Keys are instance-wide; name the workspace when two of them have a model with the same slug. */
+  /** Optional: a key acts in its own workspace, and naming a different one is refused. */
   workspace?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
