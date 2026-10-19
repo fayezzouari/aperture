@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ApiKey, InferenceLog, Model, ModelVersion
+from app.scope import models_in
 
 BUCKET_FOR_WINDOW = {  # window minutes -> bucket width
     60: "minute",
@@ -35,8 +36,11 @@ def _p(fraction: float):
 def base_filters(
     *, since: datetime, model_id: str | None = None,
     version_id: str | None = None, route: str | None = None,
+    workspace_id: str | None = None,
 ) -> list:
     clauses = [InferenceLog.created_at >= since]
+    if workspace_id:
+        clauses.append(InferenceLog.model_id.in_(models_in(workspace_id)))
     if model_id:
         clauses.append(InferenceLog.model_id == model_id)
     if version_id:
@@ -49,10 +53,11 @@ def base_filters(
 async def summary(
     session: AsyncSession, *, window_minutes: int = 1440,
     model_id: str | None = None, version_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> dict:
     since = datetime.now(UTC) - timedelta(minutes=window_minutes)
     clauses = base_filters(since=since, model_id=model_id,
-                           version_id=version_id)
+                           version_id=version_id, workspace_id=workspace_id)
 
     row = (
         await session.execute(
@@ -276,9 +281,10 @@ async def consumer_labels(session: AsyncSession, caller_ids: list[str]) -> dict[
 
 
 async def error_breakdown(session: AsyncSession, *, since_hours: int,
-                          model_id: str | None = None) -> list[dict]:
+                          model_id: str | None = None,
+                          workspace_id: str | None = None) -> list[dict]:
     since = datetime.now(UTC) - timedelta(hours=since_hours)
-    clauses = base_filters(since=since, model_id=model_id)
+    clauses = base_filters(since=since, model_id=model_id, workspace_id=workspace_id)
     rows = (
         await session.execute(
             sa.select(
