@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from . import fixtures as fx
 from .conftest import call
 
 
@@ -88,6 +89,18 @@ async def test_get_inference_returns_capture_and_overlay_as_images(server):
     assert max(capture.size) <= 1568
     assert result.content[1].mime_type == "image/jpeg"
     assert result.content[2].mime_type == "image/png"
+
+
+async def test_get_inference_survives_a_capture_that_is_not_an_image(server, api):
+    # a rejected upload is stored as sent: the corrupt-image check captures exactly that
+    api.routes[("GET", "/v1/inferences/log1")] = {
+        **fx.INFERENCE_DETAIL,
+        "image_urls": ["http://minio.test/captures/cap/0.bin?X-Amz-Signature=abc"],
+        "overlay_urls": [],
+    }
+    result = await call(server, "get_inference", log_id="log1")
+    assert [block.type for block in result.content] == ["text", "text"]
+    assert "is not an image" in result.content[1].text
 
 
 async def test_get_inference_without_images(server, api):
