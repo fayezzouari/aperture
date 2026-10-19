@@ -128,8 +128,8 @@ export default function Inspector({
 
       {data.type === "gate" ? (
         <>
-          <Field label="Run parameter" hint="A key from the run's `params`, e.g. part_names.">
-            <input className="input mono" value={data.param ?? ""} placeholder="part_names" onChange={(event) => onChange({ param: event.target.value })} />
+          <Field label="Run parameter" hint="A key from the run's `params`, e.g. regions.">
+            <input className="input mono" value={data.param ?? ""} placeholder="regions" onChange={(event) => onChange({ param: event.target.value })} />
           </Field>
           <Field label="Test">
             <select className="select" value={data.op ?? "contains"} onChange={(event) => onChange({ op: event.target.value as "contains" | "equals" | "truthy" })}>
@@ -140,7 +140,7 @@ export default function Inspector({
           </Field>
           {data.op !== "truthy" ? (
             <Field label="Value" hint="The branch runs only when the test passes; otherwise it is skipped and costs nothing.">
-              <input className="input mono" value={data.value ?? ""} placeholder="hood" onChange={(event) => onChange({ value: event.target.value })} />
+              <input className="input mono" value={data.value ?? ""} placeholder="north" onChange={(event) => onChange({ value: event.target.value })} />
             </Field>
           ) : null}
         </>
