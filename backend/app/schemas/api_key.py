@@ -12,7 +12,8 @@ from app.schemas.common import ORMModel
 class ApiKeyIn(BaseModel):
     name: str
     scopes: list[str] = Field(default_factory=lambda: ["*"],
-                              description='model ids/slugs, or ["*"] for every model')
+                              description='model ids or slugs, or ["*"] for every model; '
+                                          'a slug matches that slug in every workspace')
     rate_limit_rpm: int = Field(600, ge=0, le=1_000_000)
     monthly_quota: int = Field(0, ge=0)
     expires_in_days: int | None = Field(None, ge=1, le=3650)
