@@ -30,6 +30,7 @@ class ModelPatch(BaseModel):
 
 class ModelOut(ORMModel):
     id: str
+    workspace_id: str
     slug: str
     name: str
     task: str
