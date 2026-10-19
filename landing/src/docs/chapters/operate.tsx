@@ -94,7 +94,7 @@ export const operate: Chapter = {
   -H "authorization: Bearer $APERTURE_TOKEN" \\
   -H "x-aperture-workspace: e2e" \\
   -H "content-type: application/json" \\
-  -d '{"kind": "bulk_images", "model": "e2e-part-detection", "ref": "production",
+  -d '{"kind": "bulk_images", "model": "e2e-orchard", "ref": "production",
        "source_urls": ["https://example.com/photos/0001.jpg"],
        "webhook_url": "https://example.com/aperture-callback"}'
 # -> 202 {"id": "...", "status": "queued"}
