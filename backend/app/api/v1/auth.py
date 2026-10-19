@@ -63,7 +63,7 @@ def _user_dict(user: User) -> dict:
     return {
         "id": user.id, "email": user.email, "name": user.name, "provider": user.provider,
         "role": user.role, "is_active": user.is_active,
-        "last_login_at": user.last_login_at,
+        "last_login_at": user.last_login_at, "last_workspace_id": user.last_workspace_id,
     }
 
 
