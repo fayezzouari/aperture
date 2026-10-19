@@ -52,7 +52,7 @@ const NAV = [
 ];
 
 // pages that show one workspace's models, workflows and traffic; the rest are instance-wide
-const WORKSPACE_PAGES = ["/models", "/workflows", "/traces", "/jobs"];
+const WORKSPACE_PAGES = ["/models", "/workflows", "/traces", "/jobs", "/keys"];
 const inWorkspace = (path: string) => path === "/" || WORKSPACE_PAGES.some((prefix) => path.startsWith(prefix));
 
 // queries that do not change with the workspace, kept across a switch
