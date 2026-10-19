@@ -16,7 +16,7 @@ preprocessing.
 ```bash
 git clone <this repo> && cd aperture
 cp .env.example .env          # then change the three CHANGE ME values
-make up                       # or: docker compose up -d --build
+make up                       # or: docker compose up -d --build; also how you upgrade
 make seed                     # optional: a demo workspace with traffic in it
 open http://localhost:8080    # admin@localhost / aperture
 ```
