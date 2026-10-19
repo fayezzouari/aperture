@@ -27,10 +27,16 @@ SMALL_PNG_B64 = base64.b64encode(SMALL_PNG).decode()
 BIG_JPEG = jpeg_bytes(3000, 2000)
 
 ME = {"id": "u1", "email": "dev@aperture.test", "name": "Dev", "provider": "local",
-      "role": "developer", "is_active": True, "last_login_at": NOW}
+      "role": "developer", "is_active": True, "last_login_at": NOW,
+      "last_workspace_id": "w1"}
+
+WORKSPACES = [
+    {"id": "w1", "slug": "cloud", "name": "Cloud", "description": "", "created_at": NOW,
+     "role": "developer", "model_count": 2, "member_count": 3},
+]
 
 MODEL = {
-    "id": "m1", "slug": "part-detection", "name": "Part detection",
+    "id": "m1", "workspace_id": "w1", "slug": "part-detection", "name": "Part detection",
     "task": "detection", "owner": "vision", "framework": "onnx", "description": "Finds parts",
     "labels": ["prod"], "created_at": NOW, "updated_at": NOW, "archived_at": None,
     "version_count": 3, "latest_version": 3,
