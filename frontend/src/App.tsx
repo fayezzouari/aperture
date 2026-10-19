@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, session } from "./lib/api";
-import { useInstance, useMe, useWorkspaces } from "./lib/hooks";
+import { ActiveWorkspace, useInstance, useMe, useWorkspaces } from "./lib/hooks";
 import { ErrorNote, Spinner } from "./components/ui";
 import { FirstWorkspace, WorkspaceSwitcher } from "./components/workspaces";
 
@@ -238,47 +238,49 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="min-h-full">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] border-r border-line bg-black lg:block">{sidebar}</aside>
+    <ActiveWorkspace.Provider value={current ? active : null}>
+      <div className="min-h-full">
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] border-r border-line bg-black lg:block">{sidebar}</aside>
 
-      {/* below lg the sidebar becomes a drawer behind a slim top bar */}
-      <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-line bg-black/85 px-4 backdrop-blur lg:hidden">
-        <button className="btn btn-sm btn-ghost" onClick={() => setDrawerOpen(true)} aria-label="Open navigation" aria-expanded={drawerOpen}>
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-        <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
-          <Mark />
-          <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
-        </Link>
-      </header>
-      {drawerOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[260px] max-w-[85vw] border-r border-line bg-black">{sidebar}</aside>
+        {/* below lg the sidebar becomes a drawer behind a slim top bar */}
+        <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-line bg-black/85 px-4 backdrop-blur lg:hidden">
+          <button className="btn btn-sm btn-ghost" onClick={() => setDrawerOpen(true)} aria-label="Open navigation" aria-expanded={drawerOpen}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+              <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+          <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
+            <Mark />
+            <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
+          </Link>
+        </header>
+        {drawerOpen ? (
+          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
+            <aside className="absolute inset-y-0 left-0 w-[260px] max-w-[85vw] border-r border-line bg-black">{sidebar}</aside>
+          </div>
+        ) : null}
+
+        <div className="lg:pl-[232px]">
+          <main className="mx-auto max-w-[1440px] px-4 py-6 lg:px-6">
+            {!inWorkspace(location.pathname) ? (
+              children
+            ) : workspaces.data && !workspaces.data.length ? (
+              <FirstWorkspace onCreated={switchTo} />
+            ) : active && current ? (
+              // keyed so every page remounts, and refetches, in the workspace switched to
+              <div key={active}>{children}</div>
+            ) : workspaces.isError ? (
+              <ErrorNote error={workspaces.error} />
+            ) : (
+              <div className="flex h-40 items-center justify-center text-ink-3">
+                <Spinner size={18} />
+              </div>
+            )}
+          </main>
         </div>
-      ) : null}
-
-      <div className="lg:pl-[232px]">
-        <main className="mx-auto max-w-[1440px] px-4 py-6 lg:px-6">
-          {!inWorkspace(location.pathname) ? (
-            children
-          ) : workspaces.data && !workspaces.data.length ? (
-            <FirstWorkspace onCreated={switchTo} />
-          ) : active && current ? (
-            // keyed so every page remounts, and refetches, in the workspace switched to
-            <div key={active}>{children}</div>
-          ) : workspaces.isError ? (
-            <ErrorNote error={workspaces.error} />
-          ) : (
-            <div className="flex h-40 items-center justify-center text-ink-3">
-              <Spinner size={18} />
-            </div>
-          )}
-        </main>
       </div>
-    </div>
+    </ActiveWorkspace.Provider>
   );
 }
 
