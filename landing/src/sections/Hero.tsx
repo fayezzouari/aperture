@@ -73,13 +73,13 @@ export function Hero() {
       <RequestPanel />
 
       <figure className="panel shot" aria-label="Aperture overview page">
-        <PanelHead title="Overview" subtitle="How the instance is behaving right now. Last 24 hours, refreshed every 15 seconds." />
+        <PanelHead title="Overview" subtitle="How one workspace is behaving right now. Last 24 hours, refreshed every 15 seconds." />
         <img
           className="iris"
           src={shots.overview}
           width={2880}
           height={1800}
-          alt="The Aperture overview: requests, error rate, p95 latency, replicas ready, latency over time and recent failures across the instance."
+          alt="The Aperture overview: requests, error rate, p95 latency, replicas ready, latency over time and recent failures for one workspace."
         />
       </figure>
     </section>
