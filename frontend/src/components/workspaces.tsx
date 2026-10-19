@@ -145,7 +145,7 @@ export function NewWorkspaceModal({ open, onClose, onCreated }: { open: boolean;
             className="input"
             autoFocus
             value={form.name}
-            placeholder="Cloud"
+            placeholder="Research"
             onChange={(event) => {
               const name = event.target.value;
               setForm({ ...form, name, slug: slugEdited ? form.slug : slugify(name).slice(0, 63) });

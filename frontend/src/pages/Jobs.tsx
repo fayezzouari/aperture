@@ -126,7 +126,7 @@ export default function Jobs() {
           <pre className="mono scroll-x text-[11.5px] leading-relaxed text-ink-2">{`POST /v1/jobs
 {
   "kind": "bulk_images",
-  "model": "part-detection",
+  "model": "my-model",
   "ref": "production",
   "source_keys": ["batch-2026-08/img-0001.jpg", "..."],
   "webhook_url": "https://internal.example/aperture-callback"

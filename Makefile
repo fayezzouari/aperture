@@ -72,6 +72,10 @@ test: ## Run the pipeline, artifact, runtime, backend and MCP test suites
 e2e: ## Exercise the running stack end to end (upload, validate, deploy, predict, roll back)
 	./scripts/e2e.sh
 
+.PHONY: guide-shots
+guide-shots: ## Retake the user guide's screenshots in the e2e workspace (run make e2e first)
+	uv run --with playwright --with numpy --with pillow --with onnx python scripts/guide_screenshots.py
+
 .PHONY: verify-real
 verify-real: ## Verify against the real cells-detection classifier (see scripts/real-model)
 	@echo "1) export the checkpoint from the cells-detection repo:"

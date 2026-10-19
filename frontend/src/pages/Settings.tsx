@@ -16,7 +16,9 @@ type CaptureSettings = {
 
 export default function Settings() {
   const workspace = useWorkspace();
-  const [tab, setTab] = useState(workspace ? "workspace" : "users");
+  // until a tab is picked, open on the workspace once the shell has chosen one
+  const [picked, setTab] = useState<string | null>(null);
+  const tab = picked ?? (workspace ? "workspace" : "users");
   const me = useMe();
   const instance = useInstance();
   const role = useInstanceRole();

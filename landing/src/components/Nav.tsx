@@ -12,6 +12,7 @@ export function Nav() {
         <a href="#tour">Console</a>
         <a href="#workflows">Workflows</a>
         <a href="#operate">Operate</a>
+        <a href="/docs/">Guide</a>
         <a className="btn btn-sm" href="#run">
           Run it locally
         </a>

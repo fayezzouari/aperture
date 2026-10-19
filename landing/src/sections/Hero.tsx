@@ -42,7 +42,7 @@ function RequestPanel() {
         }
       />
       <pre>
-        <span className="kw">POST</span> /v1/models/part-detection/<span className="badge badge-tag">production</span>/predict{"\n"}
+        <span className="kw">POST</span> /v1/models/fruit-counter/<span className="badge badge-tag">production</span>/predict{"\n"}
         <span className="note">x-api-key: ap_3f9c21d0…</span>{"\n\n"}
         <span className="note">production →</span>{" "}
         <span className={`swap${out ? " out" : ""}`}>

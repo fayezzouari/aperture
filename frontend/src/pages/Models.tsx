@@ -232,7 +232,7 @@ function CreateModel({ open, onClose, onCreated }: { open: boolean; onClose: () 
                 slug: slugEdited ? current.slug : slugify(name),
               }));
             }}
-            placeholder="Front bumper part detection"
+            placeholder="Bird species detector"
           />
         </Field>
         <Field
@@ -248,7 +248,7 @@ function CreateModel({ open, onClose, onCreated }: { open: boolean; onClose: () 
               setSlugEdited(next.length > 0);
               setForm((current) => ({ ...current, slug: next }));
             }}
-            placeholder="part-detection"
+            placeholder="bird-species"
             spellCheck={false}
           />
         </Field>
@@ -262,7 +262,7 @@ function CreateModel({ open, onClose, onCreated }: { open: boolean; onClose: () 
           </select>
         </Field>
         <Field label="Owner" hint="Who to ask when this model misbehaves.">
-          <input className="input" value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} placeholder="perception team" />
+          <input className="input" value={form.owner} onChange={(event) => setForm({ ...form, owner: event.target.value })} placeholder="vision team" />
         </Field>
         <Field label="Description">
           <textarea className="textarea" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
@@ -336,7 +336,7 @@ function ImportRoboflow({ open, onClose, onStarted }: { open: boolean; onClose: 
           />
         </Field>
         <Field label="Model slug" hint="Optional. Defaults to the Roboflow project id; an existing model gains a new version.">
-          <input className="input mono" value={slug} placeholder="part-detection" onChange={(event) => setSlug(event.target.value)} />
+          <input className="input mono" value={slug} placeholder="bird-species" onChange={(event) => setSlug(event.target.value)} />
         </Field>
         {hasInstanceKey ? (
           <p className="hint">

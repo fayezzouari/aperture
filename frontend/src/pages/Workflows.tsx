@@ -35,7 +35,7 @@ export default function Workflows() {
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight">Workflows</h1>
           <p className="mt-0.5 max-w-2xl text-[12.5px] leading-relaxed text-ink-3">
-            Chain several models into one endpoint — detect a part, crop to it, classify the damage — so products call one URL instead of
+            Chain several models into one endpoint — detect objects, crop to each one, classify the crops — so products call one URL instead of
             re-implementing the pipeline.
           </p>
         </div>
@@ -110,7 +110,7 @@ export default function Workflows() {
         <div className="px-4 py-4">
           <CodeBlock
             language="curl"
-            code={`curl -X POST "${window.location.origin}/v1/workflows/damage-report/run" \\
+            code={`curl -X POST "${window.location.origin}/v1/workflows/sort-and-grade/run" \\
   -H "x-api-key: $APERTURE_KEY" \\
   -F "images=@photo.jpg"
 
@@ -119,7 +119,7 @@ export default function Workflows() {
 #   "outputs": { "panels": [...], "severity": [...] },
 #   "node_stats": [ { "label": "Detect panels", "ms": 61.2, "items_out": 3 },
 #                   { "label": "Crop", "ms": 24.9, "items_out": 3 },
-#                   { "label": "Classify damage", "ms": 812.4, "items_out": 3 } ],
+#                   { "label": "Classify crops", "ms": 812.4, "items_out": 3 } ],
 #   "model_calls": 2, "total_ms": 901.7
 # }`}
           />
@@ -185,7 +185,7 @@ function CreateWorkflow({ open, onClose, onCreated }: { open: boolean; onClose: 
                 slug: slugEdited ? current.slug : slugify(name),
               }));
             }}
-            placeholder="Damage report"
+            placeholder="Sort and grade"
           />
         </Field>
         <Field label="Slug" hint={problem ?? "Derived from the name. Products call /v1/workflows/{slug}/run."}>
@@ -198,7 +198,7 @@ function CreateWorkflow({ open, onClose, onCreated }: { open: boolean; onClose: 
               setSlugEdited(next.length > 0);
               setForm((current) => ({ ...current, slug: next }));
             }}
-            placeholder="damage-report"
+            placeholder="sort-and-grade"
             spellCheck={false}
           />
         </Field>

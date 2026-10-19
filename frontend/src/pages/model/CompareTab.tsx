@@ -15,8 +15,11 @@ type Compare = {
 
 /** R2.5 - metadata, metrics, latency and config differences, side by side. */
 export default function CompareTab({ model, versions }: { model: Model; versions: Version[] }) {
-  const [left, setLeft] = useState(versions[1]?.version ?? versions[0]?.version ?? 0);
-  const [right, setRight] = useState(versions[0]?.version ?? 0);
+  // the tab can mount before the versions load, so the defaults apply until a pick
+  const [pickedLeft, setLeft] = useState<number | null>(null);
+  const [pickedRight, setRight] = useState<number | null>(null);
+  const left = pickedLeft ?? versions[1]?.version ?? versions[0]?.version ?? 0;
+  const right = pickedRight ?? versions[0]?.version ?? 0;
 
   const compare = useQuery<Compare>({
     queryKey: ["compare", model.slug, left, right],

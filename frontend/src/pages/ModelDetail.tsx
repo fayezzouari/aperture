@@ -606,7 +606,7 @@ function UploadWizard({ model, open, onClose, onDone, latest }: { model: Model; 
             <input className="input" value={meta.training_run_id} onChange={(event) => setMeta({ ...meta, training_run_id: event.target.value })} />
           </Field>
           <Field label="Dataset version">
-            <input className="input" value={meta.dataset_version} onChange={(event) => setMeta({ ...meta, dataset_version: event.target.value })} placeholder="Part-Detection-V2-10" />
+            <input className="input" value={meta.dataset_version} onChange={(event) => setMeta({ ...meta, dataset_version: event.target.value })} placeholder="birds-2026-03" />
           </Field>
           <Field label="Git commit">
             <input className="input mono" value={meta.git_commit} onChange={(event) => setMeta({ ...meta, git_commit: event.target.value })} />
