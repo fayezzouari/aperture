@@ -50,7 +50,7 @@ export function Run() {
             <span className="p">make</span> up{"\n"}
             <span className="c"># or: docker compose up -d --build</span>{"\n"}
             <span className="p">make</span> seed{"\n"}
-            <span className="c"># optional: demo models with traffic in them</span>{"\n"}
+            <span className="c"># optional: a demo workspace with traffic in it</span>{"\n"}
             <span className="p">open</span> http://localhost:8080
           </pre>
         </div>
