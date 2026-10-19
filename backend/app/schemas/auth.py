@@ -29,6 +29,7 @@ class UserOut(ORMModel):
     role: Role = "viewer"
     is_active: bool
     last_login_at: datetime | None = None
+    last_workspace_id: str | None = None
 
 
 class AuthMethods(BaseModel):
