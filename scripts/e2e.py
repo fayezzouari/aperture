@@ -75,9 +75,25 @@ def main() -> int:
     check("the bootstrap admin holds the instance admin role",
           whoami.status_code == 200 and whoami.json().get("role") == "admin",
           whoami.json().get("role", whoami.text[:80]))
-    legacy = client.get("/v1/models", headers={"x-aperture-project": "no-such-project"})
-    check("an old client's project header is ignored", legacy.status_code == 200,
-          legacy.text[:120] if legacy.status_code != 200 else "")
+
+    # ------------------------------------------------------------- workspaces
+    # Models live in a workspace; a fresh install has none until someone makes one.
+    made = client.post("/v1/workspaces", json={"slug": "e2e", "name": "End to end"})
+    check("create a workspace (or find it from an earlier run)", made.status_code in (201, 409),
+          made.text[:160] if made.status_code not in (201, 409) else "")
+    client.headers.update({"x-aperture-workspace": "e2e"})
+    listed = client.get("/v1/workspaces")
+    check("the workspace is listed with the admin role",
+          any(w["slug"] == "e2e" and w["role"] == "admin" for w in listed.json())
+          if listed.status_code == 200 else False, listed.text[:160])
+    activated = client.post("/v1/workspaces/e2e/activate")
+    remembered = client.get("/v1/auth/me").json().get("last_workspace_id")
+    check("switching to a workspace is remembered for the next sign-in",
+          activated.status_code == 200 and remembered == activated.json().get("id"),
+          activated.text[:160] if activated.status_code != 200 else "")
+    stranger = client.get("/v1/models", headers={"x-aperture-workspace": "no-such-workspace"})
+    check("an unknown workspace is a 404, not a silent fallback", stranger.status_code == 404,
+          stranger.text[:120] if stranger.status_code != 404 else "")
 
     invited = client.put("/v1/users", json={"email": "e2e-viewer@localhost", "role": "viewer"})
     check("invite a viewer", invited.status_code == 200 and invited.json().get("role") == "viewer",
