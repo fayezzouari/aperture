@@ -6,7 +6,7 @@ export const workflows: Chapter = {
   title: "Workflows",
   lede: (
     <p>
-      A workflow chains models and transforms into one endpoint - detect a part, crop to it, grade the damage - so a product calls one URL
+      A workflow chains models and transforms into one endpoint - detect the fruit, crop to each one, grade its ripeness - so a product calls one URL
       instead of re-implementing the pipeline. It is a graph you draw on a canvas; what you draw is literally what runs. Workflows belong to
       the active workspace, and their model nodes can only use that workspace's models.
     </p>
@@ -68,9 +68,9 @@ export const workflows: Chapter = {
           </p>
           <Shot
             name="workflow-editor"
-            path="/workflows/e2e-part-detection-pipeline"
-            alt="The workflow editor: a two-stage graph that detects parts, crops to each one and grades it"
-            caption="The e2e pipeline: detect parts, crop to every detection, attach each crop's box, then grade every crop."
+            path="/workflows/e2e-orchard-pipeline"
+            alt="The workflow editor: a two-stage graph that counts fruit, crops to each one and grades it"
+            caption="The e2e pipeline: detect the fruit, crop to every detection, attach each crop's box, then grade every crop for ripeness."
           />
           <Steps>
             <li>
@@ -84,7 +84,7 @@ export const workflows: Chapter = {
             <li>
               Click a node to configure it in the <b>Node</b> panel. Every node has a <FieldName>Label</FieldName>, shown on the canvas and in
               the per-node timings.
-              <Shot name="workflow-inspector" path="/workflows/e2e-part-detection-pipeline" alt="The inspector for a model node: model, version or tag, score threshold" />
+              <Shot name="workflow-inspector" path="/workflows/e2e-orchard-pipeline" alt="The inspector for a model node: model, version or tag, score threshold" />
             </li>
             <li>
               Click <Ui>Save</Ui>. An <code>unsaved</code> badge next to the title tells you when the canvas has changes the server has not seen.
@@ -201,7 +201,7 @@ export const workflows: Chapter = {
             <li>
               Read the result. <b>Where the time went</b> lists every node with its share of the total; <b>What each stage saw</b> shows the
               intermediate images (the input and every crop); <b>Output</b> is the exact JSON a caller gets.
-              <Shot name="workflow-try" path="/workflows/e2e-part-detection-pipeline" alt="A workflow run: per-node timings, the crops each stage saw and the output JSON" />
+              <Shot name="workflow-try" path="/workflows/e2e-orchard-pipeline" alt="A workflow run: per-node timings, the crops each stage saw and the output JSON" />
             </li>
             <li>
               Switch back to <Ui>Build</Ui>: each node now shows its time, items out and the version that served it, and a node that failed is
@@ -224,12 +224,12 @@ export const workflows: Chapter = {
             Products call the published revision with an API key of the same workspace. A workflow that was never published answers{" "}
             <code>model_not_deployed</code>; only a signed-in user can run a draft.
           </p>
-          <Code title="Run a workflow">{`curl -X POST "http://localhost:8080/v1/workflows/e2e-part-detection-pipeline/run" \\
+          <Code title="Run a workflow">{`curl -X POST "http://localhost:8080/v1/workflows/e2e-orchard-pipeline/run" \\
   -H "x-api-key: $APERTURE_KEY" \\
   -F "images=@photo.jpg" \\
-  -F 'params={"part_names": ["hood"]}'
+  -F 'params={"regions": ["north"]}'
 
-# → { "outputs": { "parts": [...], "severity": [...] },
+# → { "outputs": { "fruit": [...], "ripeness": [...] },
 #     "node_stats": [...], "model_calls": 2, "total_ms": 154 }`}</Code>
           <p>
             Add <code>?format=roboflow</code> for Roboflow-shaped results; a Result node's own shape setting wins over it. A node that fails
