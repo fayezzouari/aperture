@@ -37,7 +37,7 @@ the repository root has that form.
 |---|---|
 | `APERTURE_URL` | required, e.g. `http://localhost:8080` |
 | `APERTURE_TOKEN` | required. `ap_pat_…` for everything; an `ap_…` API key registers only `predict` and `run_workflow`, because that is all a key can reach |
-| `APERTURE_WORKSPACE` | optional default workspace slug; every tool also takes `workspace=`. Unset, a user's calls act in the workspace they opened last in the console. An API key is instance-wide, so for it the workspace only says which model a slug means when two workspaces share it |
+| `APERTURE_WORKSPACE` | optional default workspace slug; every tool also takes `workspace=`. Unset, a user's calls act in the workspace they opened last in the console. An API key acts in the workspace it belongs to, so leave it unset or set it to that workspace |
 
 ## Tools
 
