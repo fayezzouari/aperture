@@ -200,10 +200,10 @@ cap exists and why a large fan-out belongs in an async job.
 ```
 users ─┬─ personal_access_tokens        (instance role: admin | developer | viewer)
        └─ workspace_members ── workspaces   (a role per workspace; last_workspace_id on users)
-api_keys                               (instance-wide, optionally scoped to models)
 instance_settings                      (one row: capture policy overrides)
 
 workspaces ─┬─ workflows
+            ├─ api_keys                (optionally scoped to its models)
             └─ models ─┬─ model_versions ─┬─ deployments ── assignments ── runtimes
                        │                  └─ drift_windows
                        └─ tags ──────────────▶ (points at one version)
