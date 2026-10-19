@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit, storage
 from app.cache import all_runtimes, stream_depth
 from app.db import get_session
-from app.deps import Page, Principal, current_user, pagination
+from app.deps import Page, Principal, pagination, workspace_user
 from app.errors import ApiError
 from app.models import (
     AlertRule,
@@ -33,6 +33,7 @@ from app.schemas import (
     OverviewOut,
     RuntimeOut,
 )
+from app.scope import models_in
 from app.serialize import dump_loaded
 from app.services import analytics
 from app.settings import settings
@@ -44,6 +45,34 @@ def _log_out(row: InferenceLog) -> InferenceLogOut:
     return InferenceLogOut.model_validate(
         dump_loaded(row, has_capture=bool((row.capture or {}).get("images")))
     )
+
+
+async def _log(session: AsyncSession, log_id: str, principal: Principal) -> InferenceLog:
+    row = (
+        await session.execute(
+            sa.select(InferenceLog).where(
+                InferenceLog.id == log_id,
+                InferenceLog.model_id.in_(models_in(principal.workspace_id)),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise ApiError("not_found", "no such inference record")
+    return row
+
+
+async def _version_in_workspace(session: AsyncSession, version_id: str,
+                                principal: Principal) -> None:
+    found = (
+        await session.execute(
+            sa.select(ModelVersion.id).where(
+                ModelVersion.id == version_id,
+                ModelVersion.model_id.in_(models_in(principal.workspace_id)),
+            )
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise ApiError("version_not_found", "no such version")
 
 
 @router.get("/inferences", response_model=list[InferenceLogOut])
@@ -65,13 +94,16 @@ async def list_inferences(
     has_capture: bool | None = None,
     since_hours: int = Query(24, ge=1, le=24 * 400),
     page: Page = Depends(pagination),
-    principal: Principal = Depends(current_user),
+    principal: Principal = Depends(workspace_user),
     session: AsyncSession = Depends(get_session),
 ) -> list[InferenceLogOut]:
     """R5.6 - the explorer's filter surface."""
     principal.require("viewer")
     since = datetime.now(UTC) - timedelta(hours=since_hours)
-    stmt = sa.select(InferenceLog).where(InferenceLog.created_at >= since)
+    stmt = sa.select(InferenceLog).where(
+        InferenceLog.created_at >= since,
+        InferenceLog.model_id.in_(models_in(principal.workspace_id)),
+    )
     if model_id:
         stmt = stmt.where(InferenceLog.model_id == model_id)
     if version_id:
@@ -118,12 +150,10 @@ async def list_inferences(
 
 @router.get("/inferences/{log_id}", response_model=InferenceLogDetail)
 async def inference_detail(log_id: str,
-                           principal: Principal = Depends(current_user),
+                           principal: Principal = Depends(workspace_user),
                            session: AsyncSession = Depends(get_session)) -> InferenceLogDetail:
     principal.require("viewer")
-    row = await session.get(InferenceLog, log_id)
-    if row is None:
-        raise ApiError("not_found", "no such inference record")
+    row = await _log(session, log_id, principal)
 
     capture = row.capture or {}
     images, overlays = [], []
@@ -143,13 +173,11 @@ async def inference_detail(log_id: str,
 
 @router.post("/inferences/{log_id}/flag", response_model=InferenceLogOut)
 async def flag_inference(log_id: str, body: FlagIn, request: Request,
-                         principal: Principal = Depends(current_user),
+                         principal: Principal = Depends(workspace_user),
                          session: AsyncSession = Depends(get_session)) -> InferenceLogOut:
     """R5.10 - flagging feeds the retraining export."""
     principal.require("developer")
-    row = await session.get(InferenceLog, log_id)
-    if row is None:
-        raise ApiError("not_found", "no such inference record")
+    row = await _log(session, log_id, principal)
     if body.flagged and not (row.capture or {}).get("images"):
         raise ApiError(
             "conflict",
@@ -174,31 +202,33 @@ async def metrics_summary(
     window_minutes: int = Query(1440, ge=5, le=60 * 24 * 90),
     model_id: str | None = None,
     version_id: str | None = None,
-    principal: Principal = Depends(current_user),
+    principal: Principal = Depends(workspace_user),
     session: AsyncSession = Depends(get_session),
 ) -> MetricsSummary:
     """R5.4 - the numbers behind the dashboard, per model and version."""
     principal.require("viewer")
     data = await analytics.summary(session, window_minutes=window_minutes, model_id=model_id,
-                                   version_id=version_id)
+                                   version_id=version_id, workspace_id=principal.workspace_id)
     return MetricsSummary.model_validate(data)
 
 
 @router.get("/metrics/errors")
 async def error_breakdown(since_hours: int = Query(24, ge=1, le=24 * 90),
                           model_id: str | None = None,
-                          principal: Principal = Depends(current_user),
+                          principal: Principal = Depends(workspace_user),
                           session: AsyncSession = Depends(get_session)) -> list[dict]:
     principal.require("viewer")
-    return await analytics.error_breakdown(session, since_hours=since_hours, model_id=model_id)
+    return await analytics.error_breakdown(session, since_hours=since_hours, model_id=model_id,
+                                           workspace_id=principal.workspace_id)
 
 
 @router.get("/drift/{version_id}", response_model=DriftOut)
 async def drift(version_id: str, windows: int = Query(48, ge=2, le=720),
-                principal: Principal = Depends(current_user),
+                principal: Principal = Depends(workspace_user),
                 session: AsyncSession = Depends(get_session)) -> DriftOut:
     """R5.9 - confidence, class mix and input statistics against the baseline window."""
     principal.require("viewer")
+    await _version_in_workspace(session, version_id, principal)
     rows = list(
         (
             await session.execute(
@@ -241,9 +271,10 @@ async def drift(version_id: str, windows: int = Query(48, ge=2, le=720),
 
 @router.post("/drift/{version_id}/baseline")
 async def set_baseline(version_id: str, window_start: datetime | None = None,
-                       principal: Principal = Depends(current_user),
+                       principal: Principal = Depends(workspace_user),
                        session: AsyncSession = Depends(get_session)) -> dict:
     principal.require("developer")
+    await _version_in_workspace(session, version_id, principal)
     await session.execute(
         sa.update(DriftWindow)
         .where(DriftWindow.version_id == version_id)
@@ -263,7 +294,7 @@ async def set_baseline(version_id: str, window_start: datetime | None = None,
 
 
 @router.get("/overview", response_model=OverviewOut)
-async def overview(principal: Principal = Depends(current_user),
+async def overview(principal: Principal = Depends(workspace_user),
                    session: AsyncSession = Depends(get_session)) -> OverviewOut:
     """What the home screen shows: fleet health, traffic, and what is on fire."""
     principal.require("viewer")
@@ -271,19 +302,23 @@ async def overview(principal: Principal = Depends(current_user),
     models = (
         await session.execute(
             sa.select(sa.func.count()).select_from(Model)
-            .where(Model.archived_at.is_(None))
+            .where(Model.workspace_id == principal.workspace_id, Model.archived_at.is_(None))
         )
     ).scalar_one()
     versions = (
         await session.execute(
             sa.select(sa.func.count()).select_from(ModelVersion)
             .join(Model, Model.id == ModelVersion.model_id)
+            .where(Model.workspace_id == principal.workspace_id)
         )
     ).scalar_one()
     deployments = list(
         (
             await session.execute(
-                sa.select(Deployment).where(Deployment.status != "stopped")
+                sa.select(Deployment).where(
+                    Deployment.status != "stopped",
+                    Deployment.model_id.in_(models_in(principal.workspace_id)),
+                )
             )
         ).scalars().all()
     )
@@ -316,11 +351,13 @@ async def overview(principal: Principal = Depends(current_user),
         for r in runtime_rows
     ]
 
-    metrics = await analytics.summary(session, window_minutes=1440)
+    metrics = await analytics.summary(session, window_minutes=1440,
+                                      workspace_id=principal.workspace_id)
     recent = (
         await session.execute(
             sa.select(InferenceLog)
-            .where(InferenceLog.status != "ok")
+            .where(InferenceLog.status != "ok",
+                   InferenceLog.model_id.in_(models_in(principal.workspace_id)))
             .order_by(InferenceLog.created_at.desc()).limit(10)
         )
     ).scalars().all()
