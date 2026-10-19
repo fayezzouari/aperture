@@ -563,23 +563,24 @@ def main() -> int:
           incomplete.status_code == 422,
           (incomplete.json().get("error") or {}).get("code", ""))
 
+    # three columns, so the guide's screenshot of this graph is readable
     graph = {
         "nodes": [
-            {"id": "in", "position": {"x": 0, "y": 100},
+            {"id": "in", "position": {"x": 0, "y": 0},
              "data": {"type": "input", "label": "Photo in"}},
-            {"id": "detect", "position": {"x": 220, "y": 100},
+            {"id": "detect", "position": {"x": 300, "y": 0},
              "data": {"type": "model", "label": "Detect", "model": SLUG, "ref": "production"}},
-            {"id": "crop", "position": {"x": 440, "y": 100},
+            {"id": "crop", "position": {"x": 0, "y": 200},
              "data": {"type": "crop", "label": "Crop", "max_crops": 3, "padding": 0.08,
                       "min_score": 0.3}},
-            {"id": "geom", "position": {"x": 660, "y": 100},
+            {"id": "geom", "position": {"x": 300, "y": 200},
              "data": {"type": "geometry", "label": "Geometry", "input_name": "aux"}},
-            {"id": "grade", "position": {"x": 880, "y": 100},
+            {"id": "grade", "position": {"x": 600, "y": 200},
              "data": {"type": "model", "label": "Grade", "model": classifier_slug,
                       "ref": "production", "overrides": {"score_threshold": 0.0}}},
-            {"id": "out", "position": {"x": 1120, "y": 100},
+            {"id": "out", "position": {"x": 300, "y": 380},
              "data": {"type": "output", "label": "Severity", "key": "severity"}},
-            {"id": "out2", "position": {"x": 1120, "y": 240},
+            {"id": "out2", "position": {"x": 600, "y": 0},
              "data": {"type": "output", "label": "Parts", "key": "parts"}},
         ],
         "edges": [
