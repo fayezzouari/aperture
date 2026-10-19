@@ -3,11 +3,11 @@ import { SectionHead } from "../components/SectionHead";
 import { shots } from "../components/Shot";
 import { useInView } from "../hooks/useInView";
 
-/* One run of the damage-report workflow, from the README. */
+/* One run of a detect, crop and grade workflow. */
 const stages = [
-  { name: "Detect panels", ms: 231.4 },
-  { name: "Crop each panel", ms: 57.1 },
-  { name: "Classify damage", ms: 713.2 },
+  { name: "Detect fruit", ms: 231.4 },
+  { name: "Crop each fruit", ms: 57.1 },
+  { name: "Grade ripeness", ms: 713.2 },
 ];
 const total = stages.reduce((a, s) => a + s.ms, 0);
 
@@ -16,7 +16,7 @@ export function Workflows() {
   return (
     <section id="workflows">
       <SectionHead title="One answer usually needs more than one model.">
-        “Which panel is damaged, and how badly” is a detector, a crop and a classifier that also wants the box geometry.
+        “Which fruit is ripe, and how ripe” is a detector, a crop and a classifier that also wants the box geometry.
         Chained by hand, every product re-implements that, and each one drifts.
       </SectionHead>
       <div ref={ref} className={`split${inView ? " in-view" : ""}`}>
@@ -49,7 +49,7 @@ export function Workflows() {
             width={2880}
             height={1800}
             loading="lazy"
-            alt="The workflow editor: an input node fanning out to five gates, five model nodes and five result nodes on a canvas."
+            alt="The workflow editor: an image input, a detector, a crop and a geometry node feeding a classifier, with two result nodes."
           />
         </div>
       </div>
