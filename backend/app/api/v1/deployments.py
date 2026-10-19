@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import audit
 from app.cache import healthy_runtimes_for_version, invalidate_tag
 from app.db import get_session
-from app.deps import Principal, current_user, get_model_or_404
+from app.deps import Principal, current_user, get_model_or_404, workspace_user
 from app.errors import ApiError
 from app.models import Assignment, Deployment, Model, ModelVersion, Runtime, Tag
 from app.schemas import (
@@ -20,6 +20,7 @@ from app.schemas import (
     RollbackIn,
     RuntimeOut,
 )
+from app.scope import models_in
 from app.serialize import dump, dump_loaded
 from app.services.deployer import reconcile
 
@@ -76,12 +77,27 @@ async def _version_by_number(session: AsyncSession, model: Model, number: int) -
     return found
 
 
+async def _deployment(session: AsyncSession, deployment_id: str,
+                      principal: Principal) -> Deployment:
+    found = (
+        await session.execute(
+            sa.select(Deployment).where(
+                Deployment.id == deployment_id,
+                Deployment.model_id.in_(models_in(principal.workspace_id)),
+            )
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise ApiError("not_found", "no such deployment")
+    return found
+
+
 @router.get("/models/{ref}/deployments", response_model=list[DeploymentOut])
 async def list_deployments(ref: str, include_stopped: bool = False,
-                           principal: Principal = Depends(current_user),
+                           principal: Principal = Depends(workspace_user),
                            session: AsyncSession = Depends(get_session)) -> list[DeploymentOut]:
     principal.require("viewer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     stmt = (
         sa.select(Deployment, ModelVersion.version)
         .join(ModelVersion, ModelVersion.id == Deployment.version_id)
@@ -95,12 +111,12 @@ async def list_deployments(ref: str, include_stopped: bool = False,
 
 @router.post("/models/{ref}/deployments", response_model=DeploymentOut, status_code=201)
 async def create_deployment(ref: str, body: DeploymentIn, request: Request,
-                            principal: Principal = Depends(current_user),
+                            principal: Principal = Depends(workspace_user),
                             session: AsyncSession = Depends(get_session)) -> DeploymentOut:
     """R4.6 - a new deployment warms up on its own replicas; nothing else is touched
     until you move the tag, so traffic never lands on a cold model."""
     principal.require("developer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
 
     if body.version_id:
         version = await session.get(ModelVersion, body.version_id)
@@ -162,11 +178,9 @@ async def create_deployment(ref: str, body: DeploymentIn, request: Request,
 
 @router.patch("/deployments/{deployment_id}", response_model=DeploymentOut)
 async def patch_deployment(deployment_id: str, body: DeploymentPatch, request: Request,
-                           principal: Principal = Depends(current_user),
+                           principal: Principal = Depends(workspace_user),
                            session: AsyncSession = Depends(get_session)) -> DeploymentOut:
-    deployment = await session.get(Deployment, deployment_id)
-    if deployment is None:
-        raise ApiError("not_found", "no such deployment")
+    deployment = await _deployment(session, deployment_id, principal)
     principal.require("developer")
 
     changes = body.model_dump(exclude_unset=True)
@@ -191,12 +205,10 @@ async def patch_deployment(deployment_id: str, body: DeploymentPatch, request: R
 
 @router.post("/deployments/{deployment_id}/stop", response_model=DeploymentOut)
 async def stop_deployment(deployment_id: str, request: Request,
-                          principal: Principal = Depends(current_user),
+                          principal: Principal = Depends(workspace_user),
                           session: AsyncSession = Depends(get_session)) -> DeploymentOut:
     """Drain rather than kill: replicas finish in-flight work before unloading."""
-    deployment = await session.get(Deployment, deployment_id)
-    if deployment is None:
-        raise ApiError("not_found", "no such deployment")
+    deployment = await _deployment(session, deployment_id, principal)
     principal.require("developer")
 
     tags = list(
@@ -226,11 +238,11 @@ async def stop_deployment(deployment_id: str, request: Request,
 
 @router.post("/models/{ref}/rollback", response_model=DeploymentOut)
 async def rollback(ref: str, body: RollbackIn, request: Request,
-                   principal: Principal = Depends(current_user),
+                   principal: Principal = Depends(workspace_user),
                    session: AsyncSession = Depends(get_session)) -> DeploymentOut:
     """R2.3 - one click: repoint the tag at the previous version. No redeploy."""
     principal.require("developer")
-    model = await get_model_or_404(session, ref)
+    model = await get_model_or_404(session, ref, principal.workspace_id)
     tag = (
         await session.execute(
             sa.select(Tag).where(Tag.model_id == model.id, Tag.name == body.tag)
@@ -313,5 +325,5 @@ async def list_runtimes(principal: Principal = Depends(current_user),
 @router.post("/fleet/reconcile", tags=["fleet"])
 async def force_reconcile(principal: Principal = Depends(current_user),
                           session: AsyncSession = Depends(get_session)) -> dict:
-    principal.require("admin")
+    principal.require_instance("admin")
     return await reconcile(session)
