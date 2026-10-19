@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, session } from "./api";
 
@@ -13,9 +14,17 @@ export function useWorkspaces() {
   return useQuery<Workspace[]>({ queryKey: ["workspaces"], queryFn: () => api("/v1/workspaces"), enabled: Boolean(session.token), staleTime: 60_000 });
 }
 
-/** The workspace every page is looking at; the shell picks it before any page renders. */
+/**
+ * The active workspace's slug, provided by the shell. A context rather than a read
+ * of `session.workspace`, so instance-wide pages - which render before the shell
+ * has picked a workspace - update when it does.
+ */
+export const ActiveWorkspace = createContext<string | null>(null);
+
+/** The workspace every page is looking at. */
 export function useWorkspace(): Workspace | undefined {
-  return useWorkspaces().data?.find((workspace) => workspace.slug === session.workspace);
+  const slug = useContext(ActiveWorkspace);
+  return useWorkspaces().data?.find((workspace) => workspace.slug === slug);
 }
 
 export function useInstance() {
