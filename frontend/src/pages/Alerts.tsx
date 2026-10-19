@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useRole } from "../lib/hooks";
+import { can, useInstanceRole } from "../lib/hooks";
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Panel, PanelHeader, Spinner, Status, useToast } from "../components/ui";
 
 type Rule = {
@@ -35,7 +35,7 @@ const METRICS: { value: string; label: string; hint: string; unit: string }[] = 
 export default function Alerts() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const role = useRole();
+  const role = useInstanceRole();
   const [creating, setCreating] = useState(false);
 
   const rules = useQuery<Rule[]>({ queryKey: ["alerts"], queryFn: () => api("/v1/alerts"), refetchInterval: 30_000 });
