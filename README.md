@@ -610,12 +610,13 @@ UI ships no external fonts, CDNs or analytics. Pre-pull the eight images in
 * **People** sign in with OIDC, LDAP or a local password and hold two kinds of
   role. Inside a workspace, `viewer` reads, `developer` uploads/validates/
   deploys and `admin` manages its members and deletion (**Settings →
-  Workspace** or `/v1/workspaces/{slug}/members`). On the instance, `admin`
-  manages users, API keys and instance settings and is admin in every
+  Workspace** or `/v1/workspaces/{slug}/members`) and its API keys. On the
+  instance, `admin` manages users and instance settings and is admin in every
   workspace, and `developer` can also create workspaces.
-* **API keys** are instance-wide and reach inference only. A key can call a
-  model in any workspace; when two workspaces share a model slug, the caller
-  names one in `X-Aperture-Workspace` or calls the model by id.
+* **API keys** belong to one workspace and reach inference only, on that
+  workspace's models. A slug a key calls therefore never becomes ambiguous
+  when another workspace reuses it. The header is optional for a key; naming
+  a different workspace is refused.
 * **Custom hooks** (user-supplied pre/post-processing Python) run in a separate
   process with no filesystem or network access, a hard CPU and memory cap, and
   an import allowlist. That is hardening, not a sandbox: for hooks from
