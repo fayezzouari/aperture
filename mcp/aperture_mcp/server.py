@@ -37,6 +37,8 @@ one endpoint. `ref` on predict is a tag or a version number.
 
 Start with `get_overview` for health, `list_models` for what exists, `get_model`
 for one model's card. `predict` returns the overlay as an image - look at it.
+Models and workflows live in *workspaces*; every tool takes `workspace=<slug>`
+to act in another one, and `list_workspaces` shows them.
 """
 
 API_KEY_INSTRUCTIONS = """\
@@ -72,8 +74,9 @@ def _announce(settings: Settings) -> None:
                              headers={"authorization": f"Bearer {settings.token}"})
         if response.status_code == 200:
             me = response.json()
-            log.info("aperture-mcp: %s at %s, role %s", me.get("email"),
-                     settings.url, me.get("role") or "unknown")
+            log.info("aperture-mcp: %s at %s, role %s, workspace %s", me.get("email"),
+                     settings.url, me.get("role") or "unknown",
+                     settings.workspace or "last used")
         else:
             code = (response.json().get("error") or {}).get("code", response.status_code)
             log.warning("aperture-mcp: %s rejected the token (%s)", settings.url, code)
