@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fmt } from "../lib/format";
-import { can, useRole } from "../lib/hooks";
+import { can, useInstanceRole } from "../lib/hooks";
 import { Badge, Button, CodeBlock, EmptyState, ErrorNote, Field, Modal, Panel, PanelHeader, Spinner, useToast } from "../components/ui";
 
 type Key = {
@@ -22,7 +22,7 @@ type Key = {
 export default function Keys() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const role = useRole();
+  const role = useInstanceRole();
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<(Key & { key: string }) | null>(null);
 
