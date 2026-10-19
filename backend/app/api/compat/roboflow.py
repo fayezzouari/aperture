@@ -37,7 +37,7 @@ from app.deps import (
     current_user,
     enter_workspace,
     get_model_or_404,
-    narrow_key,
+    key_workspace,
     principal_for_key,
 )
 from app.errors import ApiError
@@ -128,8 +128,7 @@ def _recipe(workflow_id: str) -> dict:
     )
 
 
-async def _published_workflow(session: AsyncSession, workflow_id: str,
-                              workspace_id: str | None):
+async def _published_workflow(session: AsyncSession, workflow_id: str, workspace_id: str):
     """A real Aperture workflow standing in for this Roboflow workflow, if there is one.
 
     Matched the same way as a recipe - by prefix - so `cells-detection-staging`
@@ -137,10 +136,9 @@ async def _published_workflow(session: AsyncSession, workflow_id: str,
     built-in recipe, so the graph someone can see and edit in the UI is the one
     that actually serves, rather than a second definition hidden in this file.
     """
-    stmt = sa.select(Workflow)
-    if workspace_id is not None:
-        stmt = stmt.where(Workflow.workspace_id == workspace_id)
-    rows = (await session.execute(stmt)).scalars().all()
+    rows = (
+        await session.execute(sa.select(Workflow).where(Workflow.workspace_id == workspace_id))
+    ).scalars().all()
     matches = [w for w in rows if workflow_id.startswith(w.slug) and w.published_graph]
     if not matches:
         return None
@@ -271,15 +269,16 @@ async def run_workflow(
     # Roboflow's clients carry the key in the body, so that is where it is read
     # from - falling back to Aperture's own header for anything already using it.
     raw_key = request.headers.get("x-api-key") or body.get("api_key") or ""
-    # Roboflow names its workspace in the path; when an Aperture workspace has
-    # that slug it is the one meant, otherwise the header decides, as on /v1
-    named = (
-        await session.execute(sa.select(Workspace.slug).where(Workspace.slug == workspace_id))
-    ).scalar_one_or_none()
+    # A key acts in its own workspace. For a signed-in user, Roboflow's workspace
+    # segment picks the Aperture workspace of that slug when there is one,
+    # otherwise the header or their last workspace decides, as on /v1.
     if raw_key:
         principal = await principal_for_key(request, session, str(raw_key))
-        principal = await narrow_key(request, principal, session, named)
+        principal = await key_workspace(request, principal, session)
     else:
+        named = (
+            await session.execute(sa.select(Workspace.slug).where(Workspace.slug == workspace_id))
+        ).scalar_one_or_none()
         principal = await current_user(request, session)
         principal = await enter_workspace(request, principal, session, named)
 
