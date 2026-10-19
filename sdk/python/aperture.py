@@ -82,7 +82,7 @@ class Aperture:
                  client: httpx.Client | None = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.environ.get("APERTURE_KEY", "")
-        # keys are instance-wide; naming the workspace only matters when two have the same slug
+        # optional: a key acts in its own workspace, and naming a different one is refused
         self.workspace = workspace or os.environ.get("APERTURE_WORKSPACE") or None
         self._client = client or httpx.Client(timeout=timeout)
 
