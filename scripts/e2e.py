@@ -28,8 +28,8 @@ from make_onnx import build_classifier, build_detector, sample_image  # noqa: E4
 BASE = os.environ.get("APERTURE_URL", "http://localhost:8080")
 EMAIL = os.environ.get("AP_BOOTSTRAP_ADMIN_EMAIL", "admin@localhost")
 PASSWORD = os.environ.get("AP_BOOTSTRAP_ADMIN_PASSWORD", "aperture")
-SLUG = os.environ.get("E2E_MODEL", "e2e-part-detection")
-CLASSES = ["bumper", "door", "fender", "headlight"]
+SLUG = os.environ.get("E2E_MODEL", "e2e-orchard")
+CLASSES = ["kiwi", "mango", "plum", "fig"]
 
 results: list[tuple[str, bool, str]] = []
 
@@ -133,9 +133,9 @@ def main() -> int:
     # then the model itself.
     reset_model(client, SLUG)
     reset_model(client, f"{SLUG}-other")
-    reset_model(client, f"{SLUG}-severity")
+    reset_model(client, f"{SLUG}-ripeness")
     created = client.post("/v1/models", json={
-        "slug": SLUG, "name": "E2E part detection", "task": "detection",
+        "slug": SLUG, "name": "Orchard counter", "task": "detection",
         "owner": "e2e", "description": "Created by the end-to-end check.",
     })
     if not check("create a model", created.status_code == 201, created.text[:300]):
@@ -391,7 +391,7 @@ def main() -> int:
           f"served v{now_v2.json().get('model_version')}")
     check("v2 returns its own predictions",
           len(now_v2.json()["results"][0]["detections"]) == 1
-          and now_v2.json()["results"][0]["detections"][0]["class_name"] == "headlight",
+          and now_v2.json()["results"][0]["detections"][0]["class_name"] == CLASSES[-1],
           str([d["class_name"] for d in now_v2.json()["results"][0]["detections"]]))
 
     rolled = client.post(f"/v1/models/{SLUG}/rollback", json={"tag": "production"})
@@ -514,9 +514,9 @@ def main() -> int:
 
     # ---------------------------------------------------------------- workflows
     # A second model so the workflow has two stages to chain.
-    classifier_slug = f"{SLUG}-severity"
+    classifier_slug = f"{SLUG}-ripeness"
     reset_model(client, classifier_slug)
-    client.post("/v1/models", json={"slug": classifier_slug, "name": "E2E severity",
+    client.post("/v1/models", json={"slug": classifier_slug, "name": "Ripeness grade",
                                     "task": "classification", "owner": "e2e"})
     cls_version = client.post(f"/v1/models/{classifier_slug}/versions", json={
         "preset": "resnet-imagenet", "artifact_format": "onnx",
@@ -530,10 +530,10 @@ def main() -> int:
                                               "resize_side": None}
         cls_config["postprocess"]["top_k"] = 3
         client.patch(f"/v1/models/{classifier_slug}/versions/1", json={"config": cls_config})
-        cls_weights = build_classifier(os.path.join(workdir, "severity.onnx"), classes=3, winner=2)
+        cls_weights = build_classifier(os.path.join(workdir, "ripeness.onnx"), classes=3, winner=2)
         with open(cls_weights, "rb") as fh:
             client.post(f"/v1/models/{classifier_slug}/versions/1/weights",
-                        files={"file": ("severity.onnx", fh.read())})
+                        files={"file": ("ripeness.onnx", fh.read())})
         for attempt in range(8):
             checked = client.post(f"/v1/models/{classifier_slug}/versions/1/validate")
             if checked.status_code == 200 and \
@@ -551,7 +551,7 @@ def main() -> int:
     if client.get(f"/v1/workflows/{workflow_slug}").status_code == 200:
         client.delete(f"/v1/workflows/{workflow_slug}")
     made = client.post("/v1/workflows", json={
-        "slug": workflow_slug, "name": "E2E pipeline", "owner": "e2e",
+        "slug": workflow_slug, "name": "Orchard pipeline", "owner": "e2e",
         "description": "Detect, crop to each detection, then grade each crop.",
     })
     check("create a workflow", made.status_code == 201, made.text[:200])
@@ -579,9 +579,9 @@ def main() -> int:
              "data": {"type": "model", "label": "Grade", "model": classifier_slug,
                       "ref": "production", "overrides": {"score_threshold": 0.0}}},
             {"id": "out", "position": {"x": 300, "y": 380},
-             "data": {"type": "output", "label": "Severity", "key": "severity"}},
+             "data": {"type": "output", "label": "Ripeness", "key": "ripeness"}},
             {"id": "out2", "position": {"x": 600, "y": 0},
-             "data": {"type": "output", "label": "Parts", "key": "parts"}},
+             "data": {"type": "output", "label": "Fruit", "key": "fruit"}},
         ],
         "edges": [
             {"id": "w1", "source": "in", "target": "detect"},
@@ -624,11 +624,11 @@ def main() -> int:
         check("the second stage ran once per crop",
               by_label["Grade"]["items_out"] == by_label["Crop"]["items_out"])
         check("both outputs come back under their keys",
-              set(wf["outputs"]) == {"severity", "parts"}, str(list(wf["outputs"])))
+              set(wf["outputs"]) == {"ripeness", "fruit"}, str(list(wf["outputs"])))
         check("each graded crop names the detection it came from",
               all(entry.get("source", {}).get("class_name")
-                  for entry in wf["outputs"]["severity"]),
-              str([e["source"]["class_name"] for e in wf["outputs"]["severity"]]))
+                  for entry in wf["outputs"]["ripeness"]),
+              str([e["source"]["class_name"] for e in wf["outputs"]["ripeness"]]))
         check("every node is timed", all(stat["ms"] >= 0 for stat in wf["node_stats"])
               and wf["total_ms"] > 0, f"total {wf['total_ms']:.0f} ms")
 
