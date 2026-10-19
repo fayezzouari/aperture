@@ -30,6 +30,8 @@ class FakeApi:
         self.calls.append(request)
         if request.url.host == "minio.test":
             assert "authorization" not in request.headers, "presigned GETs must be anonymous"
+            if request.url.path.endswith(".bin"):
+                return httpx.Response(200, content=b"not-an-image")
             if request.url.path.endswith(".jpg"):
                 return httpx.Response(200, content=fx.BIG_JPEG,
                                       headers={"content-type": "image/jpeg"})
