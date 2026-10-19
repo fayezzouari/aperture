@@ -146,9 +146,9 @@ export const workspaces: Chapter = {
   lede: (
     <>
       <p>
-        A workspace keeps one context apart from another on the same instance - a <code>cloud</code> product and an <code>edge</code> one, a
+        A workspace keeps one context apart from another on the same instance - a <code>research</code> team and a <code>retail</code> one, a
         team, an environment. Each has its own models, workflows, API keys and members. Model and workflow slugs are unique inside a
-        workspace, so two workspaces can both have a <code>cells</code> model.
+        workspace, so two workspaces can both have a <code>detector</code> model.
       </p>
       <p>
         Everything that hangs off a model - versions, deployments, inference logs, drift, jobs - follows it into its workspace. Alerts,
