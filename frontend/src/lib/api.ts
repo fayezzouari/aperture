@@ -1,7 +1,7 @@
 /**
  * One fetch wrapper for the whole app.
  *
- * It carries the session token and turns the API's
+ * It carries the session token, the active workspace header, and turns the API's
  * error contract into a typed exception, so every page can render a real
  * message ("tag 'production' is locked") instead of "request failed".
  */
@@ -23,6 +23,10 @@ export class ApiError extends Error {
 
 const TOKEN_KEY = "aperture.token";
 
+// held in memory only: the server remembers each user's last workspace, so a
+// new tab or another device opens on the same one without anything stored here
+let activeWorkspace: string | null = null;
+
 export const session = {
   get token() {
     return localStorage.getItem(TOKEN_KEY);
@@ -30,6 +34,12 @@ export const session = {
   set token(value: string | null) {
     if (value) localStorage.setItem(TOKEN_KEY, value);
     else localStorage.removeItem(TOKEN_KEY);
+  },
+  get workspace() {
+    return activeWorkspace;
+  },
+  set workspace(slug: string | null) {
+    activeWorkspace = slug;
   },
 };
 
@@ -55,6 +65,7 @@ function buildUrl(path: string, query?: Options["query"]) {
 export async function api<T = unknown>(path: string, options: Options = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (session.token) headers.authorization = `Bearer ${session.token}`;
+  if (session.workspace) headers["x-aperture-workspace"] = session.workspace;
 
   let body: BodyInit | undefined;
   if (options.form) {
