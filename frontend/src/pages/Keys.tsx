@@ -124,18 +124,18 @@ export default function Keys() {
         <div className="space-y-3 px-4 py-4">
           <CodeBlock
             language="curl"
-            code={`curl -X POST "${window.location.origin}/v1/models/part-detection/production/predict" \\
+            code={`curl -X POST "${window.location.origin}/v1/models/my-model/production/predict" \\
   -H "x-api-key: $APERTURE_KEY" \\
-  -F "images=@damage.jpg" \\
+  -F "images=@photo.jpg" \\
   -F 'overrides={"score_threshold":0.4}'`}
           />
           <CodeBlock
             language="python"
             code={`import httpx
 
-with open("damage.jpg", "rb") as fh:
+with open("photo.jpg", "rb") as fh:
     response = httpx.post(
-        "${window.location.origin}/v1/models/part-detection/production/predict",
+        "${window.location.origin}/v1/models/my-model/production/predict",
         headers={"x-api-key": APERTURE_KEY},
         files={"images": fh},
         timeout=30,
@@ -152,7 +152,7 @@ for det in payload["results"][0]["detections"]:
 form.append("images", file);
 
 const response = await fetch(
-  "${window.location.origin}/v1/models/part-detection/production/predict",
+  "${window.location.origin}/v1/models/my-model/production/predict",
   { method: "POST", headers: { "x-api-key": APERTURE_KEY }, body: form },
 );
 if (!response.ok) {
@@ -222,7 +222,7 @@ function CreateKey({ open, models, onClose, onCreated }: { open: boolean; models
     >
       <div className="space-y-3.5">
         <Field label="Name" hint="The consuming product or service.">
-          <input className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="claims-web" />
+          <input className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="storefront-app" />
         </Field>
 
         <div>
