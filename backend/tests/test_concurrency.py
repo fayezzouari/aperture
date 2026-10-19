@@ -27,13 +27,15 @@ from app.errors import install_handlers
 from app.models import Assignment, Base, Deployment, Model, ModelVersion, Runtime, User
 from app.services import deployer, ondemand
 from app.services.versioning import next_version_number
+from .conftest import add_workspace
 
 PG_URL = os.environ.get("AP_TEST_PG_URL")
 needs_pg = pytest.mark.skipif(not PG_URL, reason="set AP_TEST_PG_URL to run against Postgres")
 
 
 async def _seed(session: AsyncSession, runtimes: int = 3, replicas: int = 2) -> tuple[Model, ModelVersion]:
-    model = Model(slug="cells", name="Cells", task="detection")
+    model = Model(workspace_id=(await add_workspace(session)).id, slug="cells", name="Cells",
+                  task="detection")
     session.add(model)
     await session.flush()
     version = ModelVersion(model_id=model.id, version=1, status="ready", config={},
@@ -171,7 +173,8 @@ async def test_concurrent_reconciles_never_double_place(pg, monkeypatch):
 @needs_pg
 async def test_concurrent_on_demand_starts_share_one_deployment(pg):
     async with pg() as session:
-        model = Model(slug="cells", name="Cells", task="detection")
+        model = Model(workspace_id=(await add_workspace(session)).id, slug="cells",
+                      name="Cells", task="detection")
         session.add(model)
         await session.flush()
         version = ModelVersion(model_id=model.id, version=1, status="ready", config={},
