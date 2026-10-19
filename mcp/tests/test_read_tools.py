@@ -11,9 +11,21 @@ async def test_list_models_is_trimmed_and_paged(server, api):
     assert row["slug"] == "part-detection"
     assert row["tags"] == {"production": 3}
     assert row["p95_ms_24h"] == 71.5
-    assert "created_at" not in row
+    assert "workspace_id" not in row and "created_at" not in row
     assert api.last().url.params["limit"] == "1"
-    assert "x-aperture-project" not in api.last().headers  # one instance, nothing to pick
+    assert api.last().headers["x-aperture-workspace"] == "cloud"
+
+
+async def test_workspace_override_travels_as_a_header(server, api):
+    await call(server, "list_models", workspace="edge")
+    assert api.last().headers["x-aperture-workspace"] == "edge"
+
+
+async def test_list_workspaces_names_the_default(server, api):
+    out = (await call(server, "list_workspaces")).structured_content
+    assert out["default"] == "cloud"
+    assert out["items"] == [{"slug": "cloud", "name": "Cloud", "description": "",
+                             "model_count": 2, "member_count": 3, "role": "developer"}]
 
 
 async def test_unset_filters_are_not_sent(server, api):
