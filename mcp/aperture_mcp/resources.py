@@ -21,12 +21,26 @@ def register_resources(mcp: MCPServer, state: AppState) -> None:
     async def me() -> str:
         return _dump(trim.user_row(await client.get("/v1/auth/me")))
 
+    @mcp.resource("aperture://workspaces", mime_type=JSON,
+                  description="Workspaces visible to this token and the caller's role in each")
+    async def workspaces() -> str:
+        rows = await client.get("/v1/workspaces")
+        return _dump([trim.workspace_row(r) for r in rows])
+
     @mcp.resource("aperture://models/{ref}", mime_type=JSON,
-                  description="A model card: tags, versions and live deployments")
+                  description="A model card in the default workspace: tags, versions, deployments")
     async def model_card(ref: str) -> str:
-        model = await client.get(f"/v1/models/{ref}")
-        versions = await client.get(f"/v1/models/{ref}/versions")
-        deployments = await client.get(f"/v1/models/{ref}/deployments")
+        return await _card(ref, None)
+
+    @mcp.resource("aperture://workspaces/{slug}/models/{ref}", mime_type=JSON,
+                  description="A model card: tags, versions and live deployments")
+    async def workspace_model_card(slug: str, ref: str) -> str:
+        return await _card(ref, slug)
+
+    async def _card(ref: str, workspace: str | None) -> str:
+        model = await client.get(f"/v1/models/{ref}", workspace=workspace)
+        versions = await client.get(f"/v1/models/{ref}/versions", workspace=workspace)
+        deployments = await client.get(f"/v1/models/{ref}/deployments", workspace=workspace)
         return _dump({
             "model": trim.model_row(model),
             "versions": [trim.version_row(v) for v in versions],
