@@ -35,42 +35,42 @@ the `e2e` workspace - is part of the landing site at `/docs/`
 screenshots are regenerated with `make guide-shots` against a running stack
 after `make e2e`.
 
-Screenshots from a running instance. Model names are blurred; everything else
-is as the console renders it. `landing/` is a one-page React tour built from
-the same images (`cd landing && npm install && npm run dev`, or
-`docker compose --profile landing up -d landing` for nginx on :8081).
+Screenshots from the `e2e` workspace, as the console renders it. `landing/` is a
+one-page React tour built from the same images (`cd landing && npm install &&
+npm run dev`, or `docker compose --profile landing up -d landing` for nginx on
+:8081).
 
-![Overview: requests, error rate, p95 latency, replicas ready, latency over time and recent failures](docs/screenshots/overview.png)
+![Overview: requests, error rate, p95 latency, replicas ready, latency over time and recent failures](docs/screenshots/guide/overview.webp)
 
 **Models** — every model in the workspace, what is live and how it is behaving.
 
-![Models: a table of models with task, tags, live version, replicas, requests, errors and p95](docs/screenshots/models.png)
+![Models: a table of models with task, tags, live version, replicas, requests, errors and p95](docs/screenshots/guide/models-list.webp)
 
-**Versions** — published weights are immutable. A PyTorch `state_dict` can be
-converted to ONNX in place; the result arrives as a new draft version.
+**Versions** — published weights are immutable. A change is a new version;
+tags move, files never do.
 
-![Model detail: a converted ONNX draft and the imported PyTorch weights with a Convert to ONNX action](docs/screenshots/model-detail.png)
+![Model detail: two published ONNX versions, with the production tag on one of them](docs/screenshots/guide/model-versions.webp)
 
 **Workflow editor** — several models drawn as one graph and served as one
-endpoint. Gates route on request fields, each result lands under its own key.
+endpoint. Every node is timed, and each result lands under its own key.
 
-![Workflow editor: an input node fanning out to gates, model nodes and result nodes](docs/screenshots/workflow-editor.png)
+![Workflow editor: a detector, a crop and a geometry node feeding a classifier, with two result nodes](docs/screenshots/guide/workflow-editor.webp)
 
 **Jobs** and **Fleet** — long work off the inference path, and every runtime
 with what it holds and when it last reported.
 
-![Jobs: conversion and import jobs with status, result notes and duration](docs/screenshots/jobs.png)
+![Jobs: export jobs with status, result and duration](docs/screenshots/guide/jobs.webp)
 
-![Fleet: runtime cards with slots used, execution provider and last heartbeat](docs/screenshots/fleet.png)
+![Fleet: runtime cards with the versions they hold, slots used and last heartbeat](docs/screenshots/guide/fleet.webp)
 
 **API keys** and **Audit** — one key per product, scoped to the models it
 calls; every mutating action, append-only.
 
-![API keys: keys with prefix, scope, rate limit, usage and last used](docs/screenshots/keys.png)
+![API keys: keys with prefix, scope, rate limit, usage and last used](docs/screenshots/guide/keys.webp)
 
-![Audit log: timestamped actions with actor, target, detail and IP](docs/screenshots/audit.png)
+![Audit log: timestamped actions with actor, target, detail and IP](docs/screenshots/guide/audit.webp)
 
-Regenerate with `scripts/screenshots.py` against a running stack.
+Regenerate with `make guide-shots` against a running stack, after `make e2e`.
 
 ---
 
