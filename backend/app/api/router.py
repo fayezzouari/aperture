@@ -19,12 +19,14 @@ from app.api.v1 import (
     users,
     versions,
     workflows,
+    workspaces,
 )
 
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
 v1.include_router(tokens.router)
 v1.include_router(users.router)
+v1.include_router(workspaces.router)
 v1.include_router(settings_api.router)
 v1.include_router(models_api.router)
 v1.include_router(versions.router)
