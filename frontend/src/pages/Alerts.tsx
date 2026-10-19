@@ -205,7 +205,7 @@ function CreateRule({ open, onClose, onCreated }: { open: boolean; onClose: () =
     >
       <div className="space-y-3.5">
         <Field label="Name">
-          <input className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Part detection error rate" />
+          <input className="input" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Error rate above 2%" />
         </Field>
         <Field label="Metric" hint={metric.hint}>
           <select className="select" value={form.metric} onChange={(event) => setForm({ ...form, metric: event.target.value })}>
