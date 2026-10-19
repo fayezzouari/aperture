@@ -326,20 +326,15 @@ async def list_runs(slug: str, page: Page = Depends(pagination),
 
 
 async def _find(session: AsyncSession, slug: str, workspace_id: str | None) -> Workflow:
-    """A workflow by slug or id; `workspace_id` is None only for an API key that named none."""
-    stmt = sa.select(Workflow).where(sa.or_(Workflow.slug == slug, Workflow.id == slug))
-    if workspace_id is not None:
-        stmt = stmt.where(Workflow.workspace_id == workspace_id)
-    found = list((await session.execute(stmt.limit(2))).scalars().all())
-    if not found:
-        raise ApiError("not_found", f"no workflow '{slug}'")
-    if len(found) > 1:
-        raise ApiError(
-            "invalid_request",
-            f"more than one workspace has a workflow '{slug}' - name the workspace in the "
-            "X-Aperture-Workspace header, or call the workflow by its id",
+    found = (
+        await session.execute(
+            sa.select(Workflow).where(Workflow.workspace_id == workspace_id,
+                                      sa.or_(Workflow.slug == slug, Workflow.id == slug))
         )
-    return found[0]
+    ).scalar_one_or_none()
+    if found is None:
+        raise ApiError("not_found", f"no workflow '{slug}' in this workspace")
+    return found
 
 
 async def _collect(request: Request) -> tuple[list[InputImage], WorkflowRunIn]:
