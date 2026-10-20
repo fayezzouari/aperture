@@ -35,6 +35,11 @@ the `e2e` workspace - is part of the landing site at `/docs/`
 screenshots are regenerated with `make guide-shots` against a running stack
 after `make e2e`.
 
+A two-minute captioned walkthrough of the console - sign in, workspaces, a
+model from playground to deploy, a workflow run, the inference explorer, API
+keys and members - is in [`docs/demo/aperture-demo.mp4`](docs/demo/aperture-demo.mp4).
+`make demo-video` records it again.
+
 Screenshots from the `e2e` workspace, as the console renders it. `landing/` is a
 one-page React tour built from the same images (`cd landing && npm install &&
 npm run dev`, or `docker compose --profile landing up -d landing` for nginx on
