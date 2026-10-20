@@ -76,6 +76,10 @@ e2e: ## Exercise the running stack end to end (upload, validate, deploy, predict
 guide-shots: ## Retake the user guide's screenshots in the e2e workspace (run make e2e first)
 	uv run --with playwright --with numpy --with pillow --with onnx python scripts/guide_screenshots.py
 
+.PHONY: demo-video
+demo-video: ## Record the two-minute console walkthrough to docs/demo/aperture-demo.mp4 (run make e2e first)
+	uv run --with playwright --with imageio-ffmpeg --with numpy --with pillow --with onnx python scripts/demo_video.py
+
 .PHONY: verify-real
 verify-real: ## Verify against the real cells-detection classifier (see scripts/real-model)
 	@echo "1) export the checkpoint from the cells-detection repo:"
