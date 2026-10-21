@@ -12,7 +12,7 @@ const rings = [
 ];
 
 const legend = [
-  { where: "outer ring", name: "fruit-bowl-seg", note: `finds each fruit · ${INFERENCE_MS} ms on CPU` },
+  { where: "outer ring", name: "fruit-bowl-seg", note: `finds each fruit in ${INFERENCE_MS} ms on CPU` },
   { where: "middle ring", name: "crop", note: "cuts each fruit out of the frame" },
   { where: "inner ring", name: "ripeness", note: "names how ripe it is" },
   { where: "centre", name: "one url", note: "fruit + ripeness, one call" },
