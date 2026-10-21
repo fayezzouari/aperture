@@ -4,7 +4,7 @@ import { Hero } from "./sections/Hero";
 import { Ideas } from "./sections/Ideas";
 import { Operate } from "./sections/Operate";
 import { Run } from "./sections/Run";
-import { Validation } from "./sections/Validation";
+import { Overrides } from "./sections/Overrides";
 import { Workflows } from "./sections/Workflows";
 
 export default function App() {
@@ -14,7 +14,7 @@ export default function App() {
       <main id="top">
         <Hero />
         <Ideas />
-        <Validation />
+        <Overrides />
         <Workflows />
         <Operate />
         <Run />
