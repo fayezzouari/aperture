@@ -2,12 +2,14 @@ import { Spiral } from "../components/Spiral";
 import { useScrollProgress } from "../hooks/useScrollProgress";
 
 /* Over the first 600 px of scroll the opening widens: rings scale out and
-   twist, outer rings fade, the copy rises and fades. */
+   twist, outer rings fade, the copy rises and fades. Browsers with scroll-driven
+   animations run it off the main thread in CSS; the others follow `--p`. With
+   reduced motion the hero stays at rest. */
 export function Hero() {
-  const ref = useScrollProgress<HTMLElement>("enter", 0, -0.66);
+  const ref = useScrollProgress<HTMLElement>("enter", 0, -0.66, 0);
   return (
     <section className="hero" ref={ref} aria-labelledby="hero-title">
-      <Spiral className="spiral" />
+      <Spiral className="opening" />
       <div className="hero-copy">
         <span className="label muted">a registry and gateway for vision models</span>
         <h1 id="hero-title">
