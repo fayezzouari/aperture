@@ -185,10 +185,26 @@ section { position: relative; padding: 140px var(--gutter); }
 .guarantees p { color: var(--muted); font-size: 15px; line-height: 23px; }
 
 /* ---- run --------------------------------------------------------------------- */
-.run { overflow: hidden; padding-bottom: 200px; }
-.spiral.echo { top: 540px; opacity: 0.35; }
-.spiral.echo .layer { will-change: auto; }
-.steps { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 20px; width: min(640px, 100%); margin: 72px auto 0; padding: 40px 48px; background: var(--bg); border-radius: 4px; }
+.run { --p: 0; overflow: hidden; padding-bottom: 200px; view-timeline-name: --run; }
+/* fade the rings out into the footer instead of ending on the section's edge */
+.run::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 280px; background: linear-gradient(180deg, rgba(11, 11, 12, 0), var(--bg)); pointer-events: none; }
+.run .section-head, .run .steps { z-index: 1; }
+/* The box reaches above the section; fade the rings in from the section's top
+   edge (540px below the box's anchor) rather than cutting them flat. */
+.spiral.echo {
+  top: 540px; opacity: 0.35;
+  -webkit-mask-image: linear-gradient(180deg, transparent calc(29.41% - 540px), #000 calc(29.41% - 220px));
+  mask-image: linear-gradient(180deg, transparent calc(29.41% - 540px), #000 calc(29.41% - 220px));
+}
+/* the hero in reverse: open and twisted on entry, at rest once in view */
+.echo .layer { transform: rotate(calc((1 - var(--p)) * (16deg + var(--l) * 4deg))) scale(calc(1 + (1 - var(--p)) * (0.32 + var(--l) * 0.06))); }
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .echo .layer { animation: closing linear both; animation-timeline: --run; animation-range: entry 0% cover 50%; }
+  }
+}
+@keyframes closing { from { transform: rotate(calc(16deg + var(--l) * 4deg)) scale(calc(1.32 + var(--l) * 0.06)); } to { transform: none; } }
+.steps { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 20px; width: min(640px, 100%); margin: 72px auto 0; padding: 40px 48px; }
 .steps ol { width: 100%; }
 .steps li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 24px; padding: 14px 0; }
 .steps li + li { border-top: 1px solid var(--line); }
