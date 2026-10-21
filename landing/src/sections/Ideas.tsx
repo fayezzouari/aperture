@@ -39,8 +39,8 @@ const ideas: Idea[] = [
   },
   {
     n: "iii.",
-    title: "Validation is an overlay, not a checkmark",
-    body: "The playground runs the exact serving path, through the production tag, and draws what came back: 18 masks on the fruit-bowl photo, with per-stage timings. A wrong letterbox is obvious here and silent in a status field.",
+    title: "Proof is a picture, not a checkmark",
+    body: "Ready only means a runtime loaded the version. The playground runs your own image through the exact serving path, via the production tag, and draws what came back: 18 masks on the fruit-bowl photo, with per-stage timings. A wrong letterbox is obvious here and silent in a status field.",
     shot: {
       src: "/screenshots/landing/playground.webp",
       alt: "The Playground of fruit-bowl-seg: the fruit-bowl photo with 18 segmentation masks and a latency breakdown per stage.",
@@ -48,7 +48,7 @@ const ideas: Idea[] = [
       regions: [
         { x: 379, y: 403, w: 425, h: 44, label: "production → v1" },
         { x: 874, y: 345, w: 1068, h: 140, label: "stage timings" },
-        { x: 926, y: 618, w: 964, h: 632, label: "18 masks, stored overlay" },
+        { x: 926, y: 618, w: 964, h: 632, label: "18 masks on your image" },
       ],
     },
   },
