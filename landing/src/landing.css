@@ -123,10 +123,10 @@ section { position: relative; padding: 140px var(--gutter); }
 .validation { --p: 0; height: 240vh; padding: 0; }
 .pin {
   position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 40px; padding: 48px var(--gutter);
+  gap: 32px; padding: 40px var(--gutter);
 }
 .validation .section-head h2 { font-size: clamp(32px, 4vw, 56px); }
-.photo { position: relative; width: min(860px, 100%, calc((100vh - 360px) * 4 / 3)); }
+.photo { position: relative; width: min(860px, 100%, calc((100vh - 460px) * 4 / 3)); }
 .photo img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; filter: grayscale(1) brightness(0.45) contrast(1.1); border-radius: 2px; }
 .photo svg { position: absolute; inset: 0; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; }
 .masks polygon { stroke: var(--white); stroke-width: 5; stroke-linejoin: round; }
