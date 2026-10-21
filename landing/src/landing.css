@@ -119,26 +119,31 @@ section { position: relative; padding: 140px var(--gutter); }
   opacity: calc(clamp(0, var(--p) * 20, 1) * clamp(0, (1 - var(--p) * 1.15) * 20, 1));
 }
 
-/* ---- validation: pinned, scroll is the fix ---------------------------------- */
-.validation { --p: 0; height: 240vh; padding: 0; }
+/* ---- overrides: the threshold falls as you scroll --------------------------- */
+.overrides { --p: 0; --t: calc(var(--high) - var(--p) * (var(--high) - var(--low))); height: 260vh; padding: 0; }
 .pin {
   position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 32px; padding: 40px var(--gutter);
+  gap: 40px; padding: 40px var(--gutter);
 }
-.validation .section-head h2 { font-size: clamp(32px, 4vw, 56px); }
-.photo { position: relative; width: min(860px, 100%, calc((100vh - 460px) * 4 / 3)); }
+.overrides .section-head h2 { font-size: clamp(32px, 4vw, 56px); }
+.override-stage { display: flex; align-items: center; justify-content: center; gap: 48px; width: 100%; max-width: var(--max); }
+.photo { position: relative; flex-shrink: 1; width: min(720px, 100%, calc((100vh - 420px) * 4 / 3)); }
 .photo img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; filter: grayscale(1) brightness(0.45) contrast(1.1); border-radius: 2px; }
 .photo svg { position: absolute; inset: 0; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; }
-.masks polygon { stroke: var(--white); stroke-width: 5; stroke-linejoin: round; }
-.masks.wrong polygon { fill: none; stroke-dasharray: 18 14; opacity: 0.85; }
-.masks.wrong { transform: translateY(calc((1 - var(--p) / 0.96) * var(--shift))); }
-.masks.right polygon { fill: rgba(255, 255, 255, 0.1); }
-/* the snap: one step at the end of the pin, not a crossfade */
-.masks.wrong, .caption.wrong { opacity: calc(1 - clamp(0, (var(--p) - 0.96) * 100, 1)); }
-.masks.right, .caption.right { opacity: clamp(0, (var(--p) - 0.96) * 100, 1); }
-.photo figcaption { position: relative; display: flex; justify-content: space-between; gap: 16px; margin-top: 16px; font-size: 15px; }
-.caption.right { position: absolute; left: 0; }
-.photo .status { color: var(--muted); }
+/* a mask shows once the falling threshold passes its score: highest first */
+.photo polygon {
+  fill: rgba(255, 255, 255, 0.1); stroke: var(--white); stroke-width: 5; stroke-linejoin: round;
+  opacity: clamp(0, (var(--s) - var(--t)) * 40 + 1, 1);
+}
+.request { display: flex; flex-direction: column; gap: 20px; width: 360px; flex-shrink: 0; }
+.request pre {
+  margin: 0; padding: 20px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 4px;
+  font-family: var(--sans); font-size: 14px; line-height: 24px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.readout { display: flex; align-items: baseline; gap: 12px; }
+.readout b { font-family: var(--display); font-weight: 600; font-size: 40px; letter-spacing: -0.03em; color: var(--white); font-variant-numeric: tabular-nums; }
+.readout span { color: var(--muted); font-size: 15px; font-variant-numeric: tabular-nums; }
+.untouched { padding-top: 16px; border-top: 1px solid var(--line-2); color: var(--ink); font-size: 15px; }
 
 /* ---- workflows: rings close on one point ------------------------------------ */
 .workflows { --p: 0; }
@@ -212,6 +217,10 @@ section { position: relative; padding: 140px var(--gutter); }
   .nested { flex-direction: column; gap: 40px; }
   .nested::before { display: none; }
   .legend { width: 100%; max-width: 360px; }
+  .override-stage { flex-direction: column; gap: 20px; }
+  .request { width: min(100%, 520px); }
+  .request pre, .request .label { display: none; }
+  .photo { width: min(100%, calc((100vh - 470px) * 4 / 3)); }
   .questions { grid-template-columns: repeat(2, 1fr); }
   .guarantees { grid-template-columns: repeat(2, 1fr); }
 }
@@ -221,9 +230,11 @@ section { position: relative; padding: 140px var(--gutter); }
   .spiral { width: max(100%, 1100px); }
   .questions, .guarantees { grid-template-columns: 1fr; }
   .steps { padding: 24px 0; }
-  .validation { height: 200vh; }
-  .pin { gap: 24px; }
-  .photo figcaption { flex-direction: column; gap: 4px; font-size: 13px; }
+  .overrides { height: 220vh; }
+  .pin { gap: 20px; padding-block: 24px; }
+  .overrides .section-head p { display: none; }
+  .request { gap: 8px; }
+  .readout b { font-size: 28px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
