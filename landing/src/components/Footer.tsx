@@ -1,8 +1,14 @@
 export function Footer() {
   return (
-    <footer>
-      <span>Aperture v0.1.0 · self-hosted · no outbound calls at runtime</span>
-      <a href="#top">Back to top</a>
+    <footer className="footer">
+      <div className="footer-meta">
+        <span>self-hosted vision · registry + gateway</span>
+        <span>Fruit photo: Hans Braxmeier, CC0</span>
+        <a href="https://github.com/fayezzouari/aperture">github.com/fayezzouari/aperture</a>
+      </div>
+      <div className="footer-word" aria-hidden="true">
+        aperture
+      </div>
     </footer>
   );
 }
