@@ -6,7 +6,7 @@ export function Nav() {
       </a>
       <nav className="nav-links" aria-label="Site">
         <a href="#ideas">Ideas</a>
-        <a href="#validation">Validation</a>
+        <a href="#overrides">Overrides</a>
         <a href="#workflows">Workflows</a>
         <a href="#operate">Operate</a>
         <a href="/docs/">Guide</a>
