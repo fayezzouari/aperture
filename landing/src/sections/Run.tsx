@@ -1,67 +1,47 @@
-import { useRef, useState } from "react";
-import { PanelHead } from "../components/PanelHead";
+import { useState } from "react";
 import { SectionHead } from "../components/SectionHead";
+import { Spiral } from "../components/Spiral";
 
-const processes = [
-  { name: "api", body: "Registry and inference gateway in one process, so resolving a tag costs no network hop. Stateless; scale with replicas." },
-  { name: "runtime ×N", body: "Holds model versions resident, batches requests across callers, reports what it holds every few seconds. The only process that loads weights." },
-  { name: "worker", body: "Bulk and video jobs, conversion, exports, and the cron ticks that reconcile the fleet, evaluate alerts and expire captures." },
-  { name: "logsink", body: "Drains the inference-log stream into Postgres. A database hiccup degrades observability, not serving." },
-  { name: "stores", body: "Postgres for metadata, MinIO or S3 for weights and captures, Redis for the replica registry, tags, rate limits and the log stream." },
+const steps = [
+  { cmd: "git clone https://github.com/fayezzouari/aperture && cd aperture" },
+  { cmd: "cp .env.example .env", note: "change the three CHANGE ME values" },
+  { cmd: "make up", note: "or docker compose up -d --build" },
+  { cmd: "make seed", note: "optional: a demo model, deployed" },
+  { cmd: "open http://localhost:8080", note: "sign in as admin@localhost" },
 ];
 
 export function Run() {
-  const pre = useRef<HTMLPreElement>(null);
-  const [copied, setCopied] = useState<"idle" | "done" | "fail">("idle");
-
-  async function copy() {
-    const text = pre.current?.innerText ?? "";
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied("done");
+      await navigator.clipboard.writeText(steps.map((s) => s.cmd).join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
     } catch {
-      setCopied("fail");
+      /* clipboard blocked: the commands stay selectable */
     }
-    setTimeout(() => setCopied("idle"), 1600);
-  }
+  };
 
   return (
-    <section id="run">
-      <SectionHead title="Four processes, three stores, one compose file.">
-        Everything runs on your hardware. The API is the registry and the gateway in one stateless process, runtimes hold
-        weights on CPU or GPU, a worker takes everything that must not touch inference latency, and a log sink keeps a
-        database hiccup from becoming a serving incident.
+    <section id="run" className="run">
+      <Spiral className="spiral echo" />
+      <SectionHead label="05 — run it" title={<>One compose file.<br />Your hardware.</>}>
+        Four processes, three stores, one host. Postgres for metadata, MinIO or S3 for weights, Redis for tags and the log
+        stream.
       </SectionHead>
-      <div className="run">
-        <div className="panel term">
-          <PanelHead
-            title="Quickstart"
-            subtitle="Docker Compose, one host. Sign in as admin@localhost."
-            action={
-              <button type="button" className="btn btn-sm btn-ghost" onClick={copy} aria-label="Copy the quickstart commands">
-                {copied === "idle" ? "Copy" : copied === "done" ? "Copied" : "Select and copy"}
-              </button>
-            }
-          />
-          <pre ref={pre}>
-            <span className="p">git clone</span> &lt;this repo&gt; <span className="p">&amp;&amp; cd</span> aperture{"\n"}
-            <span className="p">cp</span> .env.example .env{"\n"}
-            <span className="c"># change the three CHANGE ME values</span>{"\n"}
-            <span className="p">make</span> up{"\n"}
-            <span className="c"># or: docker compose up -d --build</span>{"\n"}
-            <span className="p">make</span> seed{"\n"}
-            <span className="c"># optional: a demo workspace with traffic in it</span>{"\n"}
-            <span className="p">open</span> http://localhost:8080
-          </pre>
-        </div>
-        <div className="rows">
-          {processes.map((p) => (
-            <div className="row" key={p.name}>
-              <b>{p.name}</b>
-              <span>{p.body}</span>
-            </div>
+      <div className="steps">
+        <ol>
+          {steps.map((s, i) => (
+            <li key={s.cmd} className={i === steps.length - 1 ? "last" : undefined}>
+              <span className="n">{String(i + 1).padStart(2, "0")}</span>
+              <code>{s.cmd}</code>
+              {s.note && <span className="note">{s.note}</span>}
+            </li>
           ))}
-        </div>
+        </ol>
+        <button type="button" className="btn-text" onClick={copy}>
+          {copied ? "Copied" : "Copy the commands"}
+        </button>
       </div>
     </section>
   );
