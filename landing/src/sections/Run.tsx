@@ -24,7 +24,7 @@ export function Run() {
 
   return (
     <section id="run" className="run">
-      <Spiral className="spiral echo" />
+      <Spiral className="echo" />
       <SectionHead label="05 — run it" title={<>One compose file.<br />Your hardware.</>}>
         Four processes, three stores, one host. Postgres for metadata, MinIO or S3 for weights, Redis for tags and the log
         stream.
