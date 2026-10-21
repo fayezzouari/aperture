@@ -242,17 +242,77 @@ section { position: relative; padding: 140px var(--gutter); }
   .questions { grid-template-columns: repeat(2, 1fr); }
   .guarantees { grid-template-columns: repeat(2, 1fr); }
 }
+/* Phones: the same page, zoomed out. Type, spacing and the opening all step
+   down so more of each section fits on one screen, the console screenshots run
+   edge to edge, and the grids keep two columns instead of stacking. */
 @media (max-width: 600px) {
-  section { padding-block: 96px; }
-  .hero { height: 760px; }
-  .spiral { width: max(100%, 1100px); }
-  .questions, .guarantees { grid-template-columns: 1fr; }
-  .steps { padding: 24px 0; }
-  .overrides { height: 220vh; }
-  .pin { gap: 20px; padding-block: 24px; }
+  body { font-size: 15px; }
+  section { padding: 72px var(--gutter); }
+  .label { font-size: 13px; }
+
+  .nav { height: 60px; }
+  .wordmark { font-size: 19px; }
+  .nav-links { font-size: 14px; }
+
+  .hero { height: 640px; padding-inline: var(--gutter); }
+  .spiral { width: max(100%, 860px); }
+  .hero-copy { gap: 18px; max-width: 330px; }
+  .hero h1 { font-size: 40px; }
+  .hero p { font-size: 15px; line-height: 23px; max-width: 320px; }
+  .hero .actions { gap: 16px; padding-top: 4px; }
+  .btn-primary { height: 40px; padding: 0 18px; font-size: 14px; }
+  .btn-text { font-size: 14px; }
+
+  .section-head { gap: 14px; }
+  .section-head h2 { font-size: 30px; }
+  .section-head p { font-size: 15px; line-height: 23px; }
+
+  .ideas { padding-top: 56px; }
+  .idea-list { gap: 56px; margin-top: 40px; }
+  .idea header { gap: 8px; margin-bottom: 16px; }
+  .idea h3 { gap: 12px; font-size: 20px; }
+  .idea header p { font-size: 14px; line-height: 21px; }
+  .detected { width: calc(100% + 2 * var(--gutter)); margin-inline: calc(-1 * var(--gutter)); border-radius: 0; border-inline: 0; }
+  .box-label { font-size: 9px; line-height: 12px; padding: 1px 4px; }
+
+  .overrides { height: 200vh; }
+  .pin { gap: 16px; padding-block: 20px; }
+  .overrides .section-head h2 { font-size: 26px; }
   .overrides .section-head p { display: none; }
-  .request { gap: 8px; }
-  .readout b { font-size: 28px; }
+  .request { gap: 6px; }
+  .readout b { font-size: 24px; }
+  .readout span, .untouched { font-size: 13px; }
+  .untouched { padding-top: 10px; }
+
+  .nested { gap: 28px; margin-top: 36px; }
+  .nested svg { width: min(280px, 100%); }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 16px; max-width: none; }
+  .legend li.last { padding-top: 0; border-top: 0; }
+  .legend b { font-size: 17px; }
+  .legend span:not(.label) { font-size: 13px; line-height: 19px; }
+  .legend .label { font-size: 12px; }
+
+  .questions { gap: 36px 16px; margin-top: 44px; }
+  .question { gap: 8px; }
+  .question svg { width: 36px; height: 36px; }
+  .question h3 { font-size: 16px; line-height: 21px; }
+  .question p { font-size: 13px; line-height: 19px; }
+  .question .where { font-size: 12px; }
+  .guarantees { gap: 24px 16px; margin-top: 44px; padding-top: 32px; }
+  .guarantees h3 { font-size: 15px; margin-bottom: 6px; }
+  .guarantees p { font-size: 13px; line-height: 19px; }
+
+  .run { padding-bottom: 120px; }
+  .steps { gap: 14px; margin-top: 36px; padding: 0; }
+  .steps li { display: grid; grid-template-columns: 18px 1fr; align-items: baseline; gap: 2px 14px; padding: 10px 0; }
+  .steps .n { width: auto; font-size: 12px; }
+  .steps code { font-size: 14px; }
+  .steps .note { grid-column: 2; font-size: 12px; }
+  .btn-text { font-size: 14px; }
+
+  .footer { padding-top: 72px; }
+  .footer-meta { font-size: 14px; }
+  .footer-word { margin-top: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
