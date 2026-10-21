@@ -30,8 +30,8 @@ export function Validation() {
             </g>
           </svg>
           <figcaption>
-            <span className="caption wrong">padding not removed · every outline {LETTERBOX_SHIFT} px low</span>
-            <span className="caption right">stored reference overlay · {DETECTIONS.length} masks on their fruit</span>
+            <span className="caption wrong">padding not removed, every outline {LETTERBOX_SHIFT} px low</span>
+            <span className="caption right">stored reference overlay, {DETECTIONS.length} masks on their fruit</span>
             <span className="status">status: published</span>
           </figcaption>
         </figure>
