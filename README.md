@@ -1,7 +1,7 @@
 # Aperture
 
 Self-hosted serving, versioning and observability for computer-vision models.
-Upload weights, prove the config on a reference image, deploy, and let products
+Upload weights, check the config on your own images, deploy, and let products
 call a stable URL:
 
 ```
@@ -135,11 +135,13 @@ on every call. Rolling back is repointing a tag: instant, no redeploy, no client
 change. Deploying a new version warms it up on its own replicas first, so
 traffic only moves once something is ready to answer.
 
-**Validation is a rendered overlay, not a checkmark.** Before a version can be
-published, Aperture runs the whole pipeline on a reference image through a real
-runtime and stores the overlay. A letterbox that should have been a stretch, a
-class list off by one, BGR read as RGB — these look wrong in the overlay and
-silent in a status field.
+**Proof is a picture, not a checkmark.** A version reaches `ready` when a
+runtime loads it, which proves the graph builds and nothing more. Whether the
+config is right shows on an image: the playground runs one of yours through the
+exact serving path, and the inference explorer draws captured requests'
+predictions back over their frames. A letterbox that should have been a
+stretch, a class list off by one, BGR read as RGB — these look wrong in the
+overlay and silent in a status field.
 
 ---
 
@@ -148,8 +150,8 @@ silent in a status field.
 Through the UI: **Models → New model → New version**. Pick the architecture
 family (YOLOv5 / YOLOv8 / YOLO11 / RF-DETR / ResNet / EfficientNet / YOLO-seg /
 SAM / pose / CLIP / PaddleOCR-rec), drop the file, add the dataset version and
-metrics, upload. Then **Validate**, look at the overlay, **Publish**, **Deploy**,
-and point `production` at it.
+metrics, upload. Then **Publish**, run one of your own images through the
+**Playground** and look at the overlay, **Deploy**, and point `production` at it.
 
 Through the API:
 
@@ -167,9 +169,7 @@ curl -X POST "$AP/v1/models/part-detection/versions/3/uploads" -H "authorization
 curl -X PUT "$AP/v1/uploads/$UPLOAD/parts/1" -H "authorization: Bearer $TOKEN" -F chunk=@part1
 curl -X POST "$AP/v1/uploads/$UPLOAD/complete" -H "authorization: Bearer $TOKEN"
 
-# 3. prove it, then ship it
-curl -X POST "$AP/v1/models/part-detection/versions/3/validate" -H "authorization: Bearer $TOKEN" \
-  -F sample=@reference.jpg
+# 3. publish it, then ship it
 curl -X POST "$AP/v1/models/part-detection/versions/3/publish" -H "authorization: Bearer $TOKEN"
 curl -X POST "$AP/v1/models/part-detection/deployments" -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' -d '{"version":3,"replicas":2,"max_batch_size":8}'
@@ -614,7 +614,7 @@ UI ships no external fonts, CDNs or analytics. Pre-pull the eight images in
   `X-Aperture-Workspace` header; without it, a user's request acts in their
   last workspace. A fresh install starts with none.
 * **People** sign in with OIDC, LDAP or a local password and hold two kinds of
-  role. Inside a workspace, `viewer` reads, `developer` uploads/validates/
+  role. Inside a workspace, `viewer` reads, `developer` uploads/publishes/
   deploys and `admin` manages its members and deletion (**Settings →
   Workspace** or `/v1/workspaces/{slug}/members`) and its API keys. On the
   instance, `admin` manages users and instance settings and is admin in every
