@@ -1,25 +1,25 @@
-import { Nav } from "./components/Nav";
 import { Footer } from "./components/Footer";
+import { Nav } from "./components/Nav";
 import { Hero } from "./sections/Hero";
 import { Ideas } from "./sections/Ideas";
-import { Tour } from "./sections/Tour";
-import { Workflows } from "./sections/Workflows";
 import { Operate } from "./sections/Operate";
 import { Run } from "./sections/Run";
+import { Validation } from "./sections/Validation";
+import { Workflows } from "./sections/Workflows";
 
 export default function App() {
   return (
-    <div className="wrap">
+    <>
       <Nav />
       <main id="top">
         <Hero />
         <Ideas />
-        <Tour />
+        <Validation />
         <Workflows />
         <Operate />
         <Run />
       </main>
       <Footer />
-    </div>
+    </>
   );
 }
