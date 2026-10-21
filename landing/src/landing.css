@@ -215,8 +215,9 @@ section { position: relative; padding: 140px var(--gutter); }
 
 /* ---- footer -------------------------------------------------------------------- */
 .footer { overflow: hidden; padding: 120px var(--gutter) 0; }
-.footer-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; font-size: 14px; color: var(--muted); }
-.footer-meta a:hover { color: var(--white); }
+.footer-meta { display: flex; justify-content: center; font-size: 15px; color: var(--muted); }
+.footer-meta a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 4px; }
+.footer-meta a:hover { color: var(--white); text-decoration-color: var(--white); }
 .footer-word {
   margin-top: 24px; font-family: var(--display); font-weight: 700; font-size: clamp(96px, 25vw, 366px);
   line-height: 0.76; letter-spacing: -0.06em; text-align: center;
