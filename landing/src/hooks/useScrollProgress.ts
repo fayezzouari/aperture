@@ -9,14 +9,15 @@ import { useEffect, useRef } from "react";
  *    bottom does. For a tall wrapper around a sticky, pinned child.
  *
  *  Scrolling back runs the effect backwards. With reduced motion the property
- *  stays at 1, so every effect shows its final state. */
-export function useScrollProgress<T extends HTMLElement>(mode: "enter" | "through" = "enter", start = 0.95, end = 0.35) {
+ *  stays at `still` instead: 1 by default, so an effect shows its final state,
+ *  or 0 for one whose resting state is its start (the hero). */
+export function useScrollProgress<T extends HTMLElement>(mode: "enter" | "through" = "enter", start = 0.95, end = 0.35, still = 1) {
   const ref = useRef<T>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      el.style.setProperty("--p", "1");
+      el.style.setProperty("--p", String(still));
       return;
     }
     let frame = 0;
@@ -41,6 +42,6 @@ export function useScrollProgress<T extends HTMLElement>(mode: "enter" | "throug
       window.removeEventListener("resize", schedule);
       cancelAnimationFrame(frame);
     };
-  }, [mode, start, end]);
+  }, [mode, start, end, still]);
   return ref;
 }
