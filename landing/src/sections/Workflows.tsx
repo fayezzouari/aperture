@@ -1,57 +1,55 @@
-import { PanelHead } from "../components/PanelHead";
 import { SectionHead } from "../components/SectionHead";
-import { shots } from "../components/Shot";
-import { useInView } from "../hooks/useInView";
+import { useScrollProgress } from "../hooks/useScrollProgress";
+import { heptagon } from "../lib/heptagon";
+import { INFERENCE_MS } from "../lib/detections";
 
-/* One run of a detect, crop and grade workflow. */
-const stages = [
-  { name: "Detect fruit", ms: 231.4 },
-  { name: "Crop each fruit", ms: 57.1 },
-  { name: "Grade ripeness", ms: 713.2 },
+/* Three models as three rings closing on one point, in pipeline order: the
+   outer ring settles first, the inner last, then the point lands. */
+const rings = [
+  { r: 270, rot: 0, from: 0.6 },
+  { r: 190, rot: 14, from: 1.6 },
+  { r: 115, rot: 28, from: 3.1 },
 ];
-const total = stages.reduce((a, s) => a + s.ms, 0);
+
+const legend = [
+  { where: "outer ring", name: "fruit-bowl-seg", note: `finds each fruit · ${INFERENCE_MS} ms on CPU` },
+  { where: "middle ring", name: "crop", note: "cuts each fruit out of the frame" },
+  { where: "inner ring", name: "ripeness", note: "names how ripe it is" },
+  { where: "centre", name: "one url", note: "fruit + ripeness, one call" },
+];
 
 export function Workflows() {
-  const { ref, inView } = useInView<HTMLDivElement>();
+  const ref = useScrollProgress<HTMLElement>("enter", 0.85, 0.15);
   return (
-    <section id="workflows">
-      <SectionHead title="One answer usually needs more than one model.">
-        “Which fruit is ripe, and how ripe” is a detector, a crop and a classifier that also wants the box geometry.
-        Chained by hand, every product re-implements that, and each one drifts.
+    <section id="workflows" className="workflows" ref={ref}>
+      <SectionHead label="03 — workflows" title={<>Three models.<br />One endpoint.</>}>
+        One answer usually needs more than one model. Chain the fruit detector, a crop and a ripeness classifier into one
+        URL, so products call one thing instead of re-implementing the pipeline.
       </SectionHead>
-      <div ref={ref} className={`split${inView ? " in-view" : ""}`}>
-        <div>
-          <p className="lead">
-            A workflow is that chain, drawn once on a canvas and served as one endpoint. Every node is timed, so a slow
-            workflow says which stage is slow. Publishing snapshots the graph as a numbered revision, recorded on every
-            run. A tag inside a workflow still resolves per call, so a model rollback moves the workflow with it.
-          </p>
-          <div className="pipeline" aria-label="Per-node timings from one run">
-            {stages.map((s) => (
-              <div className="stage-row" key={s.name}>
-                <span className="n">{s.name}</span>
-                <span className="ms">{s.ms.toFixed(1)} ms</span>
-                <span className="bar">
-                  <i style={{ ["--w" as string]: `${Math.round((s.ms / total) * 100)}%` }} />
-                </span>
-              </div>
-            ))}
-            <div className="stage-row">
-              <span className="n">total</span>
-              <span className="ms">{total.toFixed(1)} ms · 2 model calls</span>
-            </div>
-          </div>
-        </div>
-        <div className="panel frame">
-          <PanelHead title="Workflow editor" subtitle="Build is the canvas; Try it runs the graph on an image and shows every stage's output and timing." />
-          <img
-            src={shots.workflowEditor}
-            width={2880}
-            height={1800}
-            loading="lazy"
-            alt="The workflow editor: an image input, a detector, a crop and a geometry node feeding a classifier, with two result nodes."
-          />
-        </div>
+      <div className="nested">
+        <svg viewBox="0 0 600 600" aria-hidden="true">
+          {rings.map((ring) => (
+            <g key={ring.r} className="nest" style={{ ["--k" as string]: ring.from }}>
+              {[0.75, 0.4, 0.22, 0.12, 0.06].map((o, j) => (
+                <polygon key={j} points={heptagon(300, 300, ring.r - j * 9, ring.rot + j * 3)} opacity={o} />
+              ))}
+            </g>
+          ))}
+          <g className="point">
+            <circle cx="300" cy="300" r="44" opacity="0.25" />
+            <circle cx="300" cy="300" r="30" opacity="0.5" />
+            <circle cx="300" cy="300" r="16" className="dot" />
+          </g>
+        </svg>
+        <ol className="legend">
+          {legend.map((row, i) => (
+            <li key={row.name} style={{ ["--i" as string]: i }} className={i === legend.length - 1 ? "last" : undefined}>
+              <span className="label muted">{row.where}</span>
+              <b>{row.name}</b>
+              <span>{row.note}</span>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );
