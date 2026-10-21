@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SectionHead } from "../components/SectionHead";
 import { Spiral } from "../components/Spiral";
+import { useScrollProgress } from "../hooks/useScrollProgress";
 
 const steps = [
   { cmd: "git clone https://github.com/fayezzouari/aperture && cd aperture" },
@@ -10,7 +11,10 @@ const steps = [
   { cmd: "open http://localhost:8080", note: "sign in as admin@localhost" },
 ];
 
+/* The echo of the opening plays the hero in reverse: it arrives open and
+   twisted, and closes to rest as the section scrolls in. */
 export function Run() {
+  const ref = useScrollProgress<HTMLElement>("enter", 1, 0.05);
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -23,7 +27,7 @@ export function Run() {
   };
 
   return (
-    <section id="run" className="run">
+    <section id="run" className="run" ref={ref}>
       <Spiral className="echo" />
       <SectionHead label="05 — run it" title={<>One compose file.<br />Your hardware.</>}>
         Four processes, three stores, one host. Postgres for metadata, MinIO or S3 for weights, Redis for tags and the log
