@@ -72,9 +72,16 @@ test: ## Run the pipeline, artifact, runtime, backend and MCP test suites
 e2e: ## Exercise the running stack end to end (upload, validate, deploy, predict, roll back)
 	./scripts/e2e.sh
 
+FRUIT_MODELS ?= /tmp/aperture-fruit
+
+.PHONY: seed-fruit
+seed-fruit: ## Build the guide's fruit workspace from real YOLOv8 and ResNet-18 checkpoints
+	uv run --with ultralytics --with onnx --with onnxslim --with onnxruntime python scripts/fruit_models.py $(FRUIT_MODELS)
+	uv run --no-project --with httpx --with pillow python scripts/seed_fruit.py $(FRUIT_MODELS)
+
 .PHONY: guide-shots
-guide-shots: ## Retake the user guide's screenshots in the e2e workspace (run make e2e first)
-	uv run --with playwright --with numpy --with pillow --with onnx python scripts/guide_screenshots.py
+guide-shots: ## Retake the user guide's screenshots in the fruit workspace (run make seed-fruit first)
+	FRUIT_MODELS=$(FRUIT_MODELS) uv run --with playwright --with numpy --with pillow --with onnx python scripts/guide_screenshots.py
 
 .PHONY: verify-real
 verify-real: ## Verify against the real cells-detection classifier (see scripts/real-model)
