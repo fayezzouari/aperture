@@ -1,4 +1,16 @@
-# Aperture
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/mark-dark.svg">
+    <img src="docs/brand/mark-light.svg" alt="" width="128" height="128">
+  </picture>
+</p>
+
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/wordmark-dark.svg">
+    <img src="docs/brand/wordmark-light.svg" alt="Aperture" height="56">
+  </picture>
+</h1>
 
 Self-hosted serving, versioning and observability for computer-vision models.
 Upload weights, check the config on your own images, deploy, and let products
