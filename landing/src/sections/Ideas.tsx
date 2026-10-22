@@ -58,7 +58,7 @@ export function Ideas() {
   return (
     <section id="ideas" className="ideas">
       <SectionHead label="01 — three ideas" title={<>Three ideas.<br />Everything else follows.</>}>
-        The rest of aperture is consequence. Learn these three and the console explains itself.
+        The rest of Aperture is consequence. Learn these three and the console explains itself.
       </SectionHead>
       <div className="idea-list">
         {ideas.map((idea) => (
