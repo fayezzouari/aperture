@@ -69,12 +69,12 @@ make seed-fruit               # optional: the real models the guide's screenshot
           </p>
           <Steps>
             <li>
-              Set <code>AP_PUBLIC_URL</code> in <code>.env</code> to the address people use. Error messages that tell an agent where to create a
-              token use it.
+              Set <code>AP_PUBLIC_URL</code> in <code>.env</code> to the address people use. Agents sign in through OAuth against that
+              address, so it must be the one they connect to, exactly.
             </li>
             <li>
-              If a reverse proxy or TLS terminator sits in front of port 8080, forward <code>/mcp</code> and <code>/downloads/</code> with
-              the rest. Leave the <code>Authorization</code> header intact, and allow requests as long as a prediction takes: the bundled
+              If a reverse proxy or TLS terminator sits in front of port 8080, forward <code>/mcp</code>, <code>/.well-known/</code> and{" "}
+              <code>/downloads/</code> with the rest. Leave the <code>Authorization</code> header intact, and allow requests as long as a prediction takes: the bundled
               nginx allows 300 s and bodies up to 512 MB.
             </li>
             <li>
