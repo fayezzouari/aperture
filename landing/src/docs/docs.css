@@ -1,7 +1,20 @@
 /* The user guide. Same tokens as the landing page and the console; the layout
    is the console's: a sidebar of hairline links beside one scrolling column. */
 
-.docs-wrap { max-width: 1280px; }
+/* the landing page's background: its off-black, and the opening's rings drawn
+   faintly behind the header, fading out before the first chapter */
+html, body { overflow-x: clip; }
+body { background: #0b0b0c; }
+.docs-wrap { position: relative; isolation: isolate; max-width: 1280px; }
+.docs-backdrop {
+  position: absolute; z-index: -1; left: 50%; top: -360px; width: max(100vw, 1440px); aspect-ratio: 1440 / 1700;
+  transform: translateX(-50%); pointer-events: none; opacity: 0.16;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 26%, transparent 52%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 26%, transparent 52%);
+}
+.docs-backdrop .layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.docs-backdrop .ring { fill: none; stroke: var(--ink); stroke-width: 0.8; }
+.docs-backdrop .ring.production { stroke: #fff; stroke-width: 1.6; }
 .brand .badge { margin-left: 2px; }
 .docs-menu { display: none; }
 
