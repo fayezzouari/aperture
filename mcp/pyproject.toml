@@ -1,12 +1,13 @@
 [project]
 name = "aperture-mcp"
 version = "0.1.0"
-description = "Aperture's API as MCP tools for coding agents (stdio)"
+description = "Aperture's API as MCP tools for coding agents (stdio or streamable HTTP)"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=2.2,<3",
     "httpx>=0.27",
     "pillow>=10.3",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
