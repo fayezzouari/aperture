@@ -100,7 +100,8 @@ export async function api<T = unknown>(path: string, options: Options = {}): Pro
     if (response.status === 401 && !path.includes("/auth/")) {
       session.token = null;
       if (!window.location.pathname.startsWith("/login")) {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+        // the query too: the OAuth consent page is nothing without it
+        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       }
     }
     throw new ApiError(response.status, code, message, details, response.headers.get("x-request-id") ?? undefined);

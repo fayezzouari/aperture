@@ -21,6 +21,7 @@ _pool: aioredis.Redis | None = None
 
 LOG_STREAM = "aperture:inference-log"
 LOG_STREAM_MAXLEN = 200_000
+LOG_GROUP = "logsink"  # the consumer group the log sink reads the stream through
 RR_KEY = "aperture:rr"
 TAG_KEY = "aperture:tag"
 TAG_TTL_S = 5  # a retag is visible within this window even on a cold gateway
@@ -226,7 +227,26 @@ async def publish_log(record: dict[str, Any]) -> None:
 
 
 async def stream_depth() -> int:
+    """Records the log sink has not written yet.
+
+    Not the stream's length: written records are acknowledged but stay in the
+    stream until MAXLEN trims them, so XLEN only ever grows. The sink's group
+    knows what is still to do - what it was handed but has not acknowledged
+    (pending), plus what it has not been handed yet (lag).
+    """
     try:
-        return int(await client().xlen(LOG_STREAM))
+        redis = client()
+        groups = await redis.xinfo_groups(LOG_STREAM)
+        group = next((g for g in groups if _text(g.get("name")) == LOG_GROUP), None)
+        if group is None or group.get("lag") is None:
+            # no sink has started yet, or Redis is too old to report lag
+            return int(await redis.xlen(LOG_STREAM))
+        return int(group.get("pending") or 0) + int(group["lag"])
+    except aioredis.ResponseError:
+        return 0  # the stream does not exist yet: nothing has been logged
     except Exception:
         return -1
+
+
+def _text(value: Any) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)

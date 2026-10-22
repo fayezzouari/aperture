@@ -18,16 +18,16 @@ from datetime import datetime
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.cache import LOG_STREAM, client
-from app.jobs.heartbeat import LOGSINK_FILE, touch
+from app.cache import LOG_GROUP, LOG_STREAM, client
 from app.db import SessionLocal, engine
+from app.jobs.heartbeat import LOGSINK_FILE, touch
 from app.logging_setup import configure_logging
 from app.models import InferenceLog
 from app.settings import settings
 
 log = logging.getLogger("aperture.logsink")
 
-GROUP = "logsink"
+GROUP = LOG_GROUP
 CONSUMER = "logsink-1"
 BATCH = 200
 BLOCK_MS = 2000

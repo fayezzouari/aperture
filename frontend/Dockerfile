@@ -9,9 +9,22 @@ COPY frontend/ ./
 RUN npm run build
 
 
+# The Claude Desktop extension, offered for download on the tokens page. Built
+# here so the file a person downloads always matches the server this release runs.
+FROM alpine:3.20 AS mcpb
+
+RUN apk add --no-cache zip
+WORKDIR /src/mcp
+COPY mcp/pyproject.toml mcp/uv.lock mcp/README.md ./
+COPY mcp/aperture_mcp ./aperture_mcp
+COPY mcp/bundle ./bundle
+RUN sh bundle/build.sh /out
+
+
 FROM nginx:1.27-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=mcpb /out/aperture.mcpb /usr/share/nginx/html/downloads/aperture.mcpb
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080

@@ -17,6 +17,7 @@ from mcp.types import ToolAnnotations
 from .. import trim
 from ..errors import guarded
 from ..images import ImageInput, decode_overlays, load_input
+from ..settings import Settings
 from ..state import AppState
 
 ACT = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False,
@@ -38,13 +39,14 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
         """Run images through a model and see what it returns, drawn on the image.
 
         `model` is the slug; `ref` a tag (production, staging) or a version number.
-        `images` are file paths on this machine, http(s) URLs, data: URLs or base64.
+        `images` are file paths on this machine, http(s) URLs, data: URLs or base64 (no
+        file paths when this server is remote).
         `overrides` adjusts thresholds for this call only (e.g. {"score_threshold": 0.4});
         `inputs` feeds a model's extra non-image inputs by name. `ondemand=true` starts one
         replica for an undeployed version and waits for it (developer role); leave it off
         to be told the model is not deployed instead. `format="roboflow"` returns Roboflow's
         response shape instead of Aperture's. The overlay comes back as an image block."""
-        loaded = _load_images(images, settings.max_images, settings.max_upload_bytes)
+        loaded = _load_images(images, settings)
         body: dict[str, Any] = {"include_overlay": include_overlay}
         if loaded["base64"]:
             body["images"] = loaded["base64"]
@@ -72,7 +74,7 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
         """Run images through a workflow (several models as one graph). `params` are the
         request fields gate nodes route on. `draft=true` runs the unpublished graph. Node
         previews, when the workflow produces them, come back as image blocks."""
-        loaded = _load_images(images, settings.max_images, settings.max_upload_bytes)
+        loaded = _load_images(images, settings)
         body: dict[str, Any] = {}
         if loaded["base64"]:
             body["images"] = loaded["base64"]
@@ -92,12 +94,14 @@ def register_act_tools(mcp: MCPServer, state: AppState) -> None:
         return parts
 
 
-def _load_images(sources: list[str], max_images: int, max_bytes: int) -> dict[str, list[str]]:
+def _load_images(sources: list[str], settings: Settings) -> dict[str, list[str]]:
+    max_images, max_bytes = settings.max_images, settings.max_upload_bytes
     if not sources:
         raise ValueError("pass at least one image (path, URL, data: URL or base64)")
     if len(sources) > max_images:
         raise ValueError(f"at most {max_images} images per call, got {len(sources)}")
-    loaded: list[ImageInput] = [load_input(source) for source in sources]
+    loaded: list[ImageInput] = [load_input(source, allow_files=not settings.remote)
+                                for source in sources]
     total = sum(item.size for item in loaded)
     if total > max_bytes:
         raise ValueError(f"images total {total / 1e6:.1f} MB, the limit is {max_bytes / 1e6:.0f} MB")

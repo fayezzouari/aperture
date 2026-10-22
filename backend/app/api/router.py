@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.api import oauth
 from app.api.v1 import (
     alerts,
     audit_api,
@@ -25,6 +26,7 @@ from app.api.v1 import (
 v1 = APIRouter(prefix="/v1")
 v1.include_router(auth.router)
 v1.include_router(tokens.router)
+v1.include_router(oauth.router)
 v1.include_router(users.router)
 v1.include_router(workspaces.router)
 v1.include_router(settings_api.router)

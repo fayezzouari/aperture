@@ -37,10 +37,11 @@ def register_read_tools(mcp: MCPServer, state: AppState) -> None:
     async def list_workspaces() -> dict[str, Any]:
         """Workspaces this token can see, with the caller's role in each. Workspace slugs
         are what `workspace=` takes on every other tool; without it a call acts in
-        APERTURE_WORKSPACE, or else the workspace last opened in the console."""
+        APERTURE_WORKSPACE (the X-Aperture-Workspace header over HTTP), or else the
+        workspace last opened in the console."""
         rows = await client.get("/v1/workspaces")
         return {"items": [trim.workspace_row(r) for r in rows],
-                "default": state.settings.workspace}
+                "default": state.settings.active_workspace}
 
     # --------------------------------------------------------------- models
 

@@ -12,6 +12,7 @@ type Token = {
   last_used_at: string | null;
   expires_at: string | null;
   revoked_at: string | null;
+  oauth: boolean;
 };
 
 const EXPIRY_OPTIONS: { label: string; days: number | null }[] = [
@@ -21,23 +22,12 @@ const EXPIRY_OPTIONS: { label: string; days: number | null }[] = [
   { label: "Never", days: null },
 ];
 
+const MCP_URL = `${window.location.origin}/mcp`;
+
+// signing in through OAuth needs nothing but the URL; these are the token-in-a-header forms
 function agentConfig(token: string) {
-  const url = window.location.origin;
   return {
-    claudeCode: `claude mcp add aperture -e APERTURE_URL=${url} -e APERTURE_TOKEN=${token} -- uvx --from /path/to/aperture/mcp aperture-mcp`,
-    json: JSON.stringify(
-      {
-        mcpServers: {
-          aperture: {
-            command: "uvx",
-            args: ["--from", "/path/to/aperture/mcp", "aperture-mcp"],
-            env: { APERTURE_URL: url, APERTURE_TOKEN: token },
-          },
-        },
-      },
-      null,
-      2,
-    ),
+    claudeCode: `claude mcp add --transport http aperture ${MCP_URL} --header "Authorization: Bearer ${token}"`,
   };
 }
 
@@ -118,7 +108,9 @@ export default function Tokens() {
               <tbody>
                 {tokens.data.map((token) => (
                   <tr key={token.id} className={token.revoked_at ? "opacity-50" : ""}>
-                    <td className="text-[12.5px] text-ink">{token.name}</td>
+                    <td className="text-[12.5px] text-ink">
+                      {token.name} {token.oauth ? <Badge>OAuth</Badge> : null}
+                    </td>
                     <td className="mono text-[11.5px] text-ink-3">{token.prefix}</td>
                     <td className="text-[11.5px] text-ink-3">{fmt.when(token.created_at)}</td>
                     <td className="text-[11.5px] text-ink-3">{token.last_used_at ? fmt.ago(token.last_used_at) : "never"}</td>
@@ -153,13 +145,30 @@ export default function Tokens() {
       <Panel>
         <PanelHeader
           title="Connect an agent"
-          subtitle="The MCP server in mcp/ turns this API into tools. Point it at this instance with a token; file paths in predict resolve on your machine."
+          subtitle="This instance serves its API as MCP tools at /mcp. Add the URL to your agent and sign in when it asks; it can then do what you can. Nothing to install."
         />
         <div className="space-y-3 px-4 py-4">
-          <p className="text-[12px] text-ink-3">Claude Code</p>
+          <p className="text-[12px] text-ink-3">Claude Code - then run /mcp in a session and choose Authenticate</p>
+          <CodeBlock language="shell" code={`claude mcp add --transport http aperture ${MCP_URL}`} />
+          <p className="text-[12px] text-ink-3">Cursor and other clients configured with JSON</p>
+          <CodeBlock language="json" code={JSON.stringify({ mcpServers: { aperture: { url: MCP_URL } } }, null, 2)} />
+          <p className="text-[12px] text-ink-3">
+            The agent opens this console to ask for your approval, and the grant appears above marked OAuth. The server runs here, so{" "}
+            <span className="mono">predict</span> takes image URLs or base64 rather than file paths. For a client that cannot sign in, send a
+            token instead:
+          </p>
           <CodeBlock language="shell" code={snippets.claudeCode} />
-          <p className="text-[12px] text-ink-3">Claude Desktop, Cursor and other JSON-configured clients</p>
-          <CodeBlock language="json" code={snippets.json} />
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+            <div>
+              <p className="text-[12.5px] text-ink">Claude Desktop</p>
+              <p className="text-[12px] text-ink-3">
+                Install the extension, then enter <span className="mono">{window.location.origin}</span> and a token. It runs on your computer, so <span className="mono">predict</span> can read local files too.
+              </p>
+            </div>
+            <a className="btn btn-sm" href="/downloads/aperture.mcpb" download>
+              Download aperture.mcpb
+            </a>
+          </div>
           <p className="text-[12px] text-ink-3">
             Or call the API directly with <span className="mono">Authorization: Bearer $APERTURE_TOKEN</span>. A token cannot create further tokens; sign in here for that.
           </p>
@@ -190,7 +199,7 @@ export default function Tokens() {
         {created ? (
           <div className="space-y-3">
             <CodeBlock language="key" code={created.token} />
-            <p className="text-[12px] text-ink-3">Ready to paste into Claude Code:</p>
+            <p className="text-[12px] text-ink-3">Ready to paste into Claude Code. For Claude Desktop, paste the token into the extension.</p>
             <CodeBlock language="shell" code={agentConfig(created.token).claudeCode} />
           </div>
         ) : null}

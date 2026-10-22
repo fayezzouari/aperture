@@ -22,6 +22,7 @@ const Audit = lazy(() => import("./pages/Audit"));
 const Fleet = lazy(() => import("./pages/Fleet"));
 const Tokens = lazy(() => import("./pages/Tokens"));
 const Settings = lazy(() => import("./pages/Settings"));
+const OAuthAuthorize = lazy(() => import("./pages/OAuthAuthorize"));
 
 const NAV = [
   {
@@ -64,13 +65,14 @@ export default function App() {
   const authed = Boolean(session.token);
 
   if (!authed && location.pathname !== "/login") {
-    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   }
 
   return (
     <Suspense fallback={<FullPageSpinner />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/oauth/authorize" element={<OAuthAuthorize />} />
         <Route
           path="*"
           element={

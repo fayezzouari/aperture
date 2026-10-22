@@ -155,7 +155,7 @@ def main() -> int:
     # ----------------------------------------------------- version 1: upload
     version = client.post(f"/v1/models/{SLUG}/versions", json={
         "preset": "yolov11", "artifact_format": "onnx",
-        "dataset_version": "Part-Detection-V2-10", "training_run_id": "e2e-run-1",
+        "dataset_version": "orchard-2026-03", "training_run_id": "e2e-run-1",
         "metrics": {"mAP50": 0.71, "f1": 0.68}, "changelog": "First version from the e2e check.",
     })
     if not check("create version 1 from the YOLO11 preset", version.status_code == 201,
@@ -353,7 +353,7 @@ def main() -> int:
                               boxes=[(320.0, 320.0, 240.0, 240.0, 3, 0.97)])
     v2 = client.post(f"/v1/models/{SLUG}/versions", json={
         "inherit_from_version": 1, "artifact_format": "onnx",
-        "changelog": "Second version: one high-confidence headlight.",
+        "changelog": "Second version: one high-confidence fig.",
         "metrics": {"mAP50": 0.74, "f1": 0.71},
     })
     check("version 2 inherits version 1's config", v2.status_code == 201

@@ -83,6 +83,10 @@ seed-fruit: ## Build the guide's fruit workspace from real YOLOv8 and ResNet-18 
 guide-shots: ## Retake the user guide's screenshots in the fruit workspace (run make seed-fruit first)
 	FRUIT_MODELS=$(FRUIT_MODELS) uv run --with playwright --with numpy --with pillow --with onnx python scripts/guide_screenshots.py
 
+.PHONY: demo-video
+demo-video: ## Record the two-minute console walkthrough to docs/demo/aperture-demo.mp4 (run make e2e first)
+	uv run --with playwright --with imageio-ffmpeg --with numpy --with pillow --with onnx python scripts/demo_video.py
+
 .PHONY: verify-real
 verify-real: ## Verify against the real cells-detection classifier (see scripts/real-model)
 	@echo "1) export the checkpoint from the cells-detection repo:"
@@ -104,6 +108,10 @@ lint: ## Ruff over the Python, tsc over the frontend
 	cd runtime && uv run ruff check runtime || true
 	cd frontend && npx tsc -b --noEmit
 	cd landing && npx tsc -b --noEmit
+
+.PHONY: mcpb
+mcpb: ## Pack the Claude Desktop extension to mcp/dist/aperture.mcpb
+	./mcp/bundle/build.sh
 
 .PHONY: openapi
 openapi: ## Write the OpenAPI document to openapi.json

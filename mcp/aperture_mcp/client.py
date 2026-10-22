@@ -5,11 +5,15 @@ authenticates with an API key and only knows the inference routes. This one
 carries a Bearer token, speaks to the control plane and never touches the
 database or Redis - the API stays the single place where roles, rate limits and
 the audit log are enforced.
+
+The token is attached per request, not to the connection pool: over HTTP one
+client serves every caller, each with their own credential.
 """
 
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -36,8 +40,7 @@ class ApertureClient:
         self.settings = settings
         self._http = httpx.AsyncClient(
             base_url=settings.url,
-            headers={"authorization": f"Bearer {settings.token}",
-                     "user-agent": "aperture-mcp"},
+            headers={"user-agent": "aperture-mcp"},
             timeout=settings.timeout_s,
             transport=transport,
         )
@@ -52,9 +55,12 @@ class ApertureClient:
 
     # ------------------------------------------------------------------ calls
 
-    def _headers(self, workspace: str | None) -> dict[str, str]:
-        slug = workspace or self.settings.workspace
-        return {WORKSPACE_HEADER: slug} if slug else {}
+    def _headers(self, workspace: str | None = None) -> dict[str, str]:
+        headers = {"authorization": f"Bearer {self.settings.active_token}"}
+        slug = workspace or self.settings.active_workspace
+        if slug:
+            headers[WORKSPACE_HEADER] = slug
+        return headers
 
     async def get(self, path: str, *, params: dict[str, Any] | None = None,
                   workspace: str | None = None) -> Any:
@@ -72,14 +78,25 @@ class ApertureClient:
 
     async def fetch_bytes(self, url: str) -> bytes:
         """Download a presigned capture or overlay. No Aperture credentials attached."""
-        response = await self._plain.get(url)
+        target, headers = self._reachable(url)
+        response = await self._plain.get(target, headers=headers)
         if response.status_code >= 400:
             raise ApertureError(response.status_code, "capture_unavailable",
                                 f"could not fetch {url.split('?')[0]}: HTTP {response.status_code}")
         return response.content
 
+    def _reachable(self, url: str) -> tuple[str, dict[str, str]]:
+        """A presigned URL on the public endpoint, sent to the internal one instead.
+
+        The signature covers the Host header, so the request keeps the public host
+        while the connection goes where this process can actually reach."""
+        public, internal = self.settings.s3_public_endpoint, self.settings.s3_endpoint
+        if not (public and internal and url.startswith(public + "/")):
+            return url, {}
+        return internal + url[len(public):], {"host": urlsplit(public).netloc}
+
     async def openapi(self) -> dict:
-        response = await self._http.get("/api/openapi.json")
+        response = await self._http.get("/api/openapi.json", headers=self._headers())
         return self._body(response)
 
     # ---------------------------------------------------------------- errors

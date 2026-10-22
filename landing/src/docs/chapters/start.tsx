@@ -58,6 +58,40 @@ make seed-fruit               # optional: the real models the guide's screenshot
       ),
     },
     {
+      id: "install-mcp",
+      title: "The agent endpoint",
+      body: (
+        <>
+          <p>
+            <code>make up</code> also starts the <code>mcp</code> service, and the console's web container forwards <code>/mcp</code> to it, so
+            agents connect to the same address people open. It also serves the Claude Desktop extension at{" "}
+            <code>/downloads/aperture.mcpb</code>. Nothing to configure for a local install.
+          </p>
+          <Steps>
+            <li>
+              Set <code>AP_PUBLIC_URL</code> in <code>.env</code> to the address people use. Agents sign in through OAuth against that
+              address, so it must be the one they connect to, exactly.
+            </li>
+            <li>
+              If a reverse proxy or TLS terminator sits in front of port 8080, forward <code>/mcp</code>, <code>/.well-known/</code> and{" "}
+              <code>/downloads/</code> with the rest. Leave the <code>Authorization</code> header intact, and allow requests as long as a prediction takes: the bundled
+              nginx allows 300 s and bodies up to 512 MB.
+            </li>
+            <li>
+              Check it: a request without a token should be refused with 401.
+            </li>
+          </Steps>
+          <Code title="Check the agent endpoint">{`curl -i -X POST http://localhost:8080/mcp
+# HTTP/1.1 401 Unauthorized
+# www-authenticate: Bearer realm="aperture"`}</Code>
+          <Note title="Turning it off">
+            Run <code>docker compose stop mcp</code>. <code>/mcp</code> then answers 502, and personal access tokens keep working against the
+            API.
+          </Note>
+        </>
+      ),
+    },
+    {
       id: "install-processes",
       title: "What runs where",
       body: (
@@ -67,6 +101,7 @@ make seed-fruit               # optional: the real models the guide's screenshot
             ["runtime ×N", "Holds model versions resident on CPU or GPU, batches requests across callers, reports what it holds every few seconds."],
             ["worker", "Imports, conversions, bulk and video jobs, exports, and the cron ticks that reconcile the fleet, evaluate alerts and expire captures."],
             ["logsink", "Drains the inference-log stream into Postgres, so a database hiccup slows the explorer, not serving."],
+            ["mcp", "Serves the API as MCP tools at /mcp for coding agents. Holds no credential: each request carries its caller's token."],
             ["stores", "Postgres for metadata, MinIO or S3 for weights and captured images, Redis for routing, tags, rate limits and the log stream."],
           ]}
         />

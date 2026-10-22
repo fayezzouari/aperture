@@ -22,6 +22,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from app import bootstrap, storage, telemetry
 from app.api.compat.roboflow import router as roboflow_compat_router
 from app.api.internal import router as internal_router
+from app.api.oauth import well_known as oauth_well_known
 from app.api.router import v1
 from app.cache import client as redis_client
 from app.cache import close as close_redis
@@ -111,6 +112,8 @@ app.add_middleware(
 
 install_handlers(app)
 app.include_router(v1)
+# OAuth metadata sits at the origin's root, where RFC 8414 says clients look
+app.include_router(oauth_well_known)
 app.include_router(internal_router)
 # Roboflow's contract, not Aperture's, so it sits outside /v1. The route
 # itself 404s unless AP_ROBOFLOW_COMPAT_ENABLED is set.

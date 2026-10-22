@@ -24,6 +24,8 @@ class TokenOut(ORMModel):
     last_used_at: datetime | None
     expires_at: datetime | None
     revoked_at: datetime | None
+    oauth: bool = Field(False, description="approved for an application through OAuth; "
+                        "expires_at is then when the grant lapses unless it is used")
 
 
 class TokenCreated(TokenOut):
