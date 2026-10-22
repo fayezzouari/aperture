@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, session } from "../lib/api";
+import { Mark } from "../components/Mark";
 import { Button, ErrorNote, Field } from "../components/ui";
 
 export default function Login() {
@@ -46,10 +47,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-[360px]">
         <div className="mb-7 flex items-center gap-2.5">
-          <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden>
-            <circle cx="16" cy="16" r="10" fill="none" stroke="#ededed" strokeWidth="2" />
-            <path d="M16 6v20M7.1 11l17.8 10M7.1 21l17.8-10" stroke="#ededed" strokeWidth="1.1" opacity="0.5" />
-          </svg>
+          <Mark size={24} />
           <div>
             <h1 className="text-[15px] font-semibold tracking-tight">{methods.data?.instance_name ?? "Aperture"}</h1>
             <p className="text-[11.5px] text-ink-3">Computer-vision model serving</p>
