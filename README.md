@@ -408,9 +408,8 @@ keys or a video, then poll the job or take a webhook.
 
 `mcp/` is an MCP server: Aperture's API as tools, so Claude Code, Claude Desktop
 or Cursor can answer "why is part-detection erroring" and *look* at what a model
-returned. It runs on your machine over stdio, calls the same `/v1` routes the
-console calls, and is bounded by your own workspace roles - it holds no database
-credentials and no bypass.
+returned. It calls the same `/v1` routes the console calls and is bounded by the
+caller's own workspace roles - it holds no database credentials and no bypass.
 
 An API key cannot do this: keys reach inference and nothing else. So a person
 issues a **personal access token** instead - **account menu → Personal access
@@ -422,7 +421,41 @@ curl -X POST "$AP/v1/auth/tokens" -H "authorization: Bearer $SESSION" \
 ```
 
 A token is that user: same roles, resolved per request, hashed at rest, shown
-once, revocable, and unable to mint further tokens. Point an agent at it:
+once, revocable, and unable to mint further tokens. There are three ways to put
+it to work; the tokens page shows the first two filled in for this instance.
+
+**Remote, nothing to install.** The stack runs the server as the `mcp` service
+and the web edge serves it at `/mcp` over streamable HTTP. Each request carries
+its caller's token, so one server serves everyone and each call is still theirs:
+
+```bash
+claude mcp add --transport http aperture http://localhost:8080/mcp \
+  --header "Authorization: Bearer ap_pat_xxxx.yyyy"
+```
+
+Cursor (`.cursor/mcp.json`) takes the same as JSON:
+
+```json
+{
+  "mcpServers": {
+    "aperture": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer ap_pat_xxxx.yyyy" }
+    }
+  }
+}
+```
+
+An `X-Aperture-Workspace: <slug>` header sets the default workspace. Because the
+server is not on your machine, `predict` takes image URLs, data URLs or base64,
+and refuses file paths rather than read its own disk.
+
+**Claude Desktop.** Download `aperture.mcpb` from the tokens page (or `make
+mcpb`), open it, and enter the instance URL and a token. The extension runs the
+server locally over stdio - Claude Desktop installs its dependencies with uv - so
+file paths work.
+
+**Local, from a checkout.** The same server over stdio, for any client:
 
 ```bash
 claude mcp add aperture \
@@ -430,25 +463,6 @@ claude mcp add aperture \
   -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \
   -e APERTURE_WORKSPACE=cloud \
   -- uvx --from ./mcp aperture-mcp
-```
-
-Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json`)
-take the same thing as JSON:
-
-```json
-{
-  "mcpServers": {
-    "aperture": {
-      "command": "uvx",
-      "args": ["--from", "/path/to/aperture/mcp", "aperture-mcp"],
-      "env": {
-        "APERTURE_URL": "http://localhost:8080",
-        "APERTURE_TOKEN": "ap_pat_xxxx.yyyy",
-        "APERTURE_WORKSPACE": "cloud"
-      }
-    }
-  }
-}
 ```
 
 What it exposes: the registry (`list_models`, `get_model`, `list_versions`,
@@ -472,8 +486,9 @@ did it" and "I did it" stay distinguishable. An API key still works if that is
 all you have, in which case only `predict` and `run_workflow` are registered.
 
 Captured images arrive as presigned links on `AP_S3_PUBLIC_ENDPOINT`
-(`localhost:9000` by default), so an agent on another machine needs that address
-to be reachable for `get_inference` to show them.
+(`localhost:9000` by default), so a local server on another machine needs that
+address to be reachable for `get_inference` to show them. The remote server
+fetches them from MinIO directly instead.
 
 ---
 
