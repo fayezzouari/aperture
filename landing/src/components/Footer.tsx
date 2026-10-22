@@ -13,7 +13,7 @@ export function Footer() {
         viewBox={`0 0 ${WORDMARK.width} ${WORDMARK.height}`}
         style={{ ["--word-em" as string]: WORDMARK.width / WORDMARK.em }}
         role="img"
-        aria-label="aperture"
+        aria-label="Aperture"
       >
         <defs>
           <linearGradient id="footer-word-fill" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2={WORDMARK.height}>

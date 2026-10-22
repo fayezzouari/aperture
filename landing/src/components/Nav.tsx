@@ -1,8 +1,11 @@
+import { Mark } from "./Mark";
+
 export function Nav() {
   return (
     <header className="nav">
-      <a className="wordmark" href="#top" aria-label="aperture, back to top">
-        aperture
+      <a className="wordmark" href="#top" aria-label="Aperture, back to top">
+        <Mark size={30} />
+        Aperture
       </a>
       <nav className="nav-links" aria-label="Site">
         <a href="#ideas">Ideas</a>

@@ -1,6 +1,6 @@
 """Outline the landing page's footer wordmark into landing/src/lib/wordmark.ts.
 
-Sets "aperture" in Inter Tight at weight 700 with -0.06em letter-spacing, the way
+Sets "Aperture" in Inter Tight at weight 700 with -0.06em letter-spacing, the way
 the browser set the old CSS text: HarfBuzz shapes it with the font's kerning,
 letter-spacing is added after every character, and the baseline sits where a
 0.76em line box puts it. The glyphs come from the font file the page already
@@ -25,7 +25,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "landing")
 FONT = os.path.join(ROOT, "node_modules", "@fontsource-variable", "inter-tight", "files",
                     "inter-tight-latin-wght-normal.woff2")
 OUT = os.path.join(ROOT, "src", "lib", "wordmark.ts")
-TEXT, WEIGHT, TRACKING, LINE_HEIGHT = "aperture", 700, -0.06, 0.76
+TEXT, WEIGHT, TRACKING, LINE_HEIGHT = "Aperture", 700, -0.06, 0.76
 
 font = instancer.instantiateVariableFont(TTFont(FONT), {"wght": WEIGHT})
 font.flavor = None
