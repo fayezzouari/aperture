@@ -1,6 +1,6 @@
 import { Code, FieldName, Note, Role, Rows, Shot, Steps, Ui, type Chapter } from "../kit";
 
-const MODEL = "/models/e2e-orchard";
+const MODEL = "/models/fruit-bowl-seg";
 
 export const models: Chapter = {
   id: "models",
@@ -9,7 +9,7 @@ export const models: Chapter = {
   lede: (
     <>
       <p>
-        A model is a named slot - <code>e2e-orchard</code> - with its own version history. A version is one set of weights plus the
+        A model is a named slot - <code>fruit-bowl-seg</code> - with its own version history. A version is one set of weights plus the
         pre- and post-processing config that goes with them. Products never call a version directly if they can help it: they call a{" "}
         <b>tag</b> such as <code>production</code>, and you move the tag.
       </p>
@@ -26,7 +26,7 @@ export const models: Chapter = {
             <Ui>Models</Ui> lists every model in the workspace with its task, tags, live versions, replicas, requests, error rate and p95 over
             the last 24 hours. Search by slug, name or owner, filter by task, or tick <b>Live only</b>.
           </p>
-          <Shot name="models-list" path="/models" alt="The model list of the e2e workspace" />
+          <Shot name="models-list" path="/models" alt="The model list of the fruit workspace: Fruit bowl segmentation and Fruit variety" />
         </>
       ),
     },
@@ -101,7 +101,7 @@ export const models: Chapter = {
             Open a model. The <Ui>Versions</Ui> tab lists every version with its status, tags, replicas, format and size, checksum, dataset,
             training run, commit and metrics. Published weights are immutable: a change is a new version.
           </p>
-          <Shot name="model-versions" path={MODEL} alt="The versions of e2e-orchard: two ready versions, production on v1" />
+          <Shot name="model-versions" path={MODEL} alt="The versions of fruit-bowl-seg: YOLOv8n-seg as v1 with production, YOLOv8s-seg as v2 with staging" />
           <Rows
             items={[
               ["draft", "Uploaded, config still editable. Try it in the playground; publish it to deploy or tag it."],
@@ -304,11 +304,11 @@ export const models: Chapter = {
             Products authenticate with an API key of the model's workspace (see <a href="#keys">API keys</a>). The path takes the model slug
             and a tag or a version number.
           </p>
-          <Code title="Predict">{`curl -X POST "http://localhost:8080/v1/models/e2e-orchard/production/predict" \\
+          <Code title="Predict">{`curl -X POST "http://localhost:8080/v1/models/fruit-bowl-seg/production/predict" \\
   -H "x-api-key: $APERTURE_KEY" \\
   -F "images=@photo.jpg"
 
-# a version instead of a tag:      .../e2e-orchard/2/predict
+# a version instead of a tag:      .../fruit-bowl-seg/2/predict
 # several images in one request:   -F images=@a.jpg -F images=@b.jpg
 # per-request thresholds:          -F 'overrides={"score_threshold": 0.4}'
 # a rendered overlay back:         -F include_overlay=true
