@@ -41,7 +41,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 24px;
   height: 84px; padding-inline: var(--gutter); border-bottom: 1px solid var(--line);
 }
-.wordmark { font-family: var(--display); font-weight: 600; font-size: 22px; letter-spacing: -0.03em; }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 600; font-size: 22px; letter-spacing: -0.03em; }
+.wordmark svg { flex: none; }
 .nav-links { display: flex; align-items: center; gap: 36px; font-size: 15px; }
 .nav-links a:hover { color: var(--white); }
 .nav-cta { font-weight: 500; color: var(--white); }
