@@ -35,7 +35,15 @@ async def list_tokens(include_revoked: bool = False,
     if not include_revoked:
         stmt = stmt.where(PersonalAccessToken.revoked_at.is_(None))
     rows = (await session.execute(stmt.order_by(PersonalAccessToken.created_at.desc()))).scalars()
-    return [TokenOut.model_validate(await dump(session, row)) for row in rows]
+    return [TokenOut.model_validate(await dump(session, row, **_grant(row))) for row in rows]
+
+
+def _grant(row: PersonalAccessToken) -> dict:
+    """An OAuth grant's access token turns over hourly; what a person cares about is
+    when the grant itself lapses, which is the refresh token's expiry."""
+    if row.oauth_client_id is None:
+        return {}
+    return {"oauth": True, "expires_at": row.refresh_expires_at}
 
 
 @router.post("", response_model=TokenCreated, status_code=201)
