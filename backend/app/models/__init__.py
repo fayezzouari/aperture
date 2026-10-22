@@ -16,6 +16,8 @@ from app.models.instance_settings import InstanceSettings
 from app.models.job import Job
 from app.models.model import Model
 from app.models.model_version import ModelVersion
+from app.models.oauth_client import OAuthClient
+from app.models.oauth_code import OAuthCode
 from app.models.personal_access_token import PersonalAccessToken
 from app.models.report_schedule import ReportSchedule
 from app.models.runtime import Runtime
@@ -42,6 +44,8 @@ __all__ = [
     "Job",
     "Model",
     "ModelVersion",
+    "OAuthClient",
+    "OAuthCode",
     "PersonalAccessToken",
     "ReportSchedule",
     "Runtime",
