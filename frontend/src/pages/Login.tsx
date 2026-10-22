@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, session } from "../lib/api";
+import "@fontsource-variable/inter-tight";
 import { Mark } from "../components/Mark";
+import { Opening } from "../components/Opening";
 import { Button, ErrorNote, Field } from "../components/ui";
 
 export default function Login() {
@@ -44,14 +46,15 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="signin flex min-h-screen items-center justify-center px-4">
+      <Opening />
       <div className="w-full max-w-[360px]">
-        <div className="mb-7 flex items-center gap-2.5">
-          <Mark size={24} />
-          <div>
-            <h1 className="text-[15px] font-semibold tracking-tight">{methods.data?.instance_name ?? "Aperture"}</h1>
-            <p className="text-[11.5px] text-ink-3">Computer-vision model serving</p>
+        <div className="mb-7 flex flex-col items-center gap-3 text-center">
+          <div className="flex items-center gap-3">
+            <Mark size={36} />
+            <h1 className="signin-title text-[40px]">{methods.data?.instance_name ?? "Aperture"}</h1>
           </div>
+          <p className="text-[13px] text-ink-2">A registry and gateway for vision models</p>
         </div>
 
         <form onSubmit={submit} className="panel space-y-3.5 px-4 py-4">

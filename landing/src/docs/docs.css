@@ -1,6 +1,9 @@
 /* The user guide. Same tokens as the landing page and the console; the layout
    is the console's: a sidebar of hairline links beside one scrolling column. */
 
+/* the landing page's background */
+html, body { overflow-x: clip; }
+body { background: #0b0b0c; }
 .docs-wrap { max-width: 1280px; }
 .brand .badge { margin-left: 2px; }
 .docs-menu { display: none; }
@@ -20,6 +23,14 @@
 .toc-sections a[aria-current="true"] { background: transparent; color: var(--ink); }
 
 /* ---- content ------------------------------------------------------------- */
+/* the rail: one hairline down the left of every chapter to the end of the page,
+   with a heptagon at each chapter; the one being read is filled */
+.rail { position: relative; padding-left: 40px; }
+.rail::before { content: ""; position: absolute; left: 8px; top: 0; bottom: 0; width: 1px; background: var(--line-2); }
+.chapter { position: relative; }
+.rail-node { position: absolute; left: -40px; top: 46px; width: 17px; height: 17px; overflow: visible; }
+.rail-node polygon { fill: #0b0b0c; stroke: var(--ink-3); stroke-width: 1.2; transition: fill 200ms ease, stroke 200ms ease; }
+.rail-node.current polygon { fill: var(--ink); stroke: var(--ink); }
 .docs-main { min-width: 0; padding-bottom: 80px; }
 .docs-hero { padding: 48px 0 40px; }
 .docs-hero h1 { margin-top: 10px; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -0.025em; max-width: 22ch; }
@@ -85,6 +96,8 @@
 .shot-img { display: block; width: 100%; padding: 0; border: 0; background: var(--panel); cursor: zoom-in; }
 .shot-img img { width: 100%; height: auto; aspect-ratio: 1440 / 900; }
 .shot-frame figcaption { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+.demo-frame { margin-top: 28px; }
+.demo-video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #0b0b0c; }
 
 .lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, 0.88); backdrop-filter: blur(4px); cursor: zoom-out; }
 .lightbox img { max-width: min(100%, 1920px); max-height: 100%; border: 1px solid var(--line-2); border-radius: 10px; }
@@ -95,4 +108,7 @@
   .docs-side { display: none; position: fixed; inset: 56px 0 0 0; z-index: 50; max-height: none; padding: 16px; background: var(--surface); border-top: 1px solid var(--line); }
   .docs-side.open { display: block; }
   .steps > li { padding-left: 34px; }
+  .rail { padding-left: 26px; }
+  .rail::before { left: 6px; }
+  .rail-node { left: -26px; width: 13px; height: 13px; }
 }

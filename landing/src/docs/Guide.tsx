@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Mark } from "../components/Mark";
+import { heptagon } from "../lib/heptagon";
+import { Demo } from "./kit";
 import { chapters } from "./chapters";
 
 /** The guide: the console's sidebar on the left, one long page of chapters on the right. */
@@ -71,9 +73,19 @@ export function Guide() {
               <code>make seed-fruit</code> builds: published YOLOv8 and ResNet-18 checkpoints, served by Aperture on a real photo of a fruit
               bowl, so what you see is what your own models will look like after their first requests.
             </p>
+            <Demo caption="Sign in, a model from the playground to deploy, a workflow run, the inference explorer, keys, members, and an agent connecting over MCP." />
           </div>
+          {/* the rail: a hairline from the first chapter to the end of the page, a heptagon at each chapter */}
+          <div className="rail">
           {chapters.map((chapter) => (
             <section key={chapter.id} id={chapter.id} className="chapter">
+              <svg
+                className={`rail-node${active === chapter.id || chapter.sections.some((section) => section.id === active) ? " current" : ""}`}
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <polygon points={heptagon(8, 8.4, 7)} />
+              </svg>
               <p className="eyebrow">{chapter.group}</p>
               <h2>{chapter.title}</h2>
               <div className="chapter-lede">{chapter.lede}</div>
@@ -87,6 +99,7 @@ export function Guide() {
               ))}
             </section>
           ))}
+          </div>
         </main>
       </div>
 
