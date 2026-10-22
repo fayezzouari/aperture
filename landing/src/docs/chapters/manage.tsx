@@ -133,17 +133,28 @@ export const tokens: Chapter = {
       body: (
         <>
           <p>
-            The MCP server in <code>mcp/</code> turns the API into tools: list models, read a model card, look at traffic and failures, run{" "}
-            <code>predict</code> and see the overlay. It runs on your machine and is bounded by your roles.
+            Aperture serves its API as MCP tools at <code>/mcp</code>: list models, read a model card, look at traffic and failures, run{" "}
+            <code>predict</code> and see the overlay. Nothing to install; an agent connects with a personal access token and is bounded by
+            your roles. The tokens page shows these commands filled in for your instance.
           </p>
-          <Code title="Claude Code">{`claude mcp add aperture \\
-  -e APERTURE_URL=http://localhost:8080 \\
-  -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \\
-  -e APERTURE_WORKSPACE=fruit \\
-  -- uvx --from /path/to/aperture/mcp aperture-mcp`}</Code>
+          <Code title="Claude Code">{`claude mcp add --transport http aperture http://localhost:8080/mcp \\
+  --header "Authorization: Bearer ap_pat_xxxx.yyyy"`}</Code>
+          <Code title="Cursor (.cursor/mcp.json)">{`{
+  "mcpServers": {
+    "aperture": {
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer ap_pat_xxxx.yyyy" }
+    }
+  }
+}`}</Code>
           <p>
-            <code>APERTURE_WORKSPACE</code> is optional; every tool also takes <code>workspace=</code>, and <code>list_workspaces</code> shows
-            the slugs.
+            Since this server runs next to Aperture, not on your machine, <code>predict</code> takes image URLs or base64 rather than file
+            paths. Add an <code>X-Aperture-Workspace</code> header to pick a default workspace; every tool also takes <code>workspace=</code>,
+            and <code>list_workspaces</code> shows the slugs.
+          </p>
+          <p>
+            For Claude Desktop, click <Ui>Download aperture.mcpb</Ui> on the tokens page, open the file, and enter the instance URL and a
+            token. The extension runs on your computer, so <code>predict</code> can read local files as well.
           </p>
         </>
       ),
