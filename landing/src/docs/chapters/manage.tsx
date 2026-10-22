@@ -21,7 +21,7 @@ export const keys: Chapter = {
             <Ui>API keys</Ui> shows the active workspace's keys: prefix, scope, rate limit, this month's usage against its quota, when it was
             last used and when it expires. Below it, ready-to-copy calls in curl, Python and TypeScript.
           </p>
-          <Shot name="keys" path="/keys" alt="The API keys of the e2e workspace" />
+          <Shot name="keys" path="/keys" alt="The API keys of the fruit workspace" />
         </>
       ),
     },
@@ -71,11 +71,11 @@ export const keys: Chapter = {
           <Code title="Python and TypeScript SDKs">{`# python
 from aperture import Aperture
 client = Aperture("http://localhost:8080", api_key=os.environ["APERTURE_KEY"])
-result = client.predict("e2e-orchard", "production", images=["photo.jpg"])
+result = client.predict("fruit-bowl-seg", "production", images=["photo.jpg"])
 
 // typescript
 const client = new Aperture({ baseUrl: "http://localhost:8080", apiKey: process.env.APERTURE_KEY });
-const result = await client.predict("e2e-orchard", "production", { images: [file] });`}</Code>
+const result = await client.predict("fruit-bowl-seg", "production", { images: [file] });`}</Code>
           <Rows
             items={[
               ["401 api_key_invalid", "Unknown key, or a token sent in x-api-key."],
@@ -139,7 +139,7 @@ export const tokens: Chapter = {
           <Code title="Claude Code">{`claude mcp add aperture \\
   -e APERTURE_URL=http://localhost:8080 \\
   -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \\
-  -e APERTURE_WORKSPACE=e2e \\
+  -e APERTURE_WORKSPACE=fruit \\
   -- uvx --from /path/to/aperture/mcp aperture-mcp`}</Code>
           <p>
             <code>APERTURE_WORKSPACE</code> is optional; every tool also takes <code>workspace=</code>, and <code>list_workspaces</code> shows
