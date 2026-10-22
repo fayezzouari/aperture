@@ -109,6 +109,10 @@ lint: ## Ruff over the Python, tsc over the frontend
 	cd frontend && npx tsc -b --noEmit
 	cd landing && npx tsc -b --noEmit
 
+.PHONY: mcpb
+mcpb: ## Pack the Claude Desktop extension to mcp/dist/aperture.mcpb
+	./mcp/bundle/build.sh
+
 .PHONY: openapi
 openapi: ## Write the OpenAPI document to openapi.json
 	$(COMPOSE) exec api python -c "import json,app.main as m; print(json.dumps(m.app.openapi()))" > openapi.json
