@@ -191,6 +191,7 @@ export const tokens: Chapter = {
               models had errors in the last day?".
             </li>
           </Steps>
+          <Shot name="oauth-consent" path="/oauth/authorize" alt="The Connect an application page asking to approve Claude Code" />
           <Code title="Claude Code">{`claude mcp add --transport http aperture http://localhost:8080/mcp
 
 # optional: default to one workspace
