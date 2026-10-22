@@ -35,10 +35,11 @@ the `e2e` workspace - is part of the landing site at `/docs/`
 screenshots are regenerated with `make guide-shots` against a running stack
 after `make e2e`.
 
-A two-minute captioned walkthrough of the console - sign in, workspaces, a
-model from playground to deploy, a workflow run, the inference explorer, API
-keys and members - is in [`docs/demo/aperture-demo.mp4`](docs/demo/aperture-demo.mp4).
-`make demo-video` records it again.
+A two-and-a-half-minute walkthrough of the console in the `fruit` workspace,
+with captions and music - sign in, workspaces, a model from playground to
+deploy, a workflow run, the inference explorer, API keys, members, and an agent
+connecting over MCP - is in [`docs/demo/aperture-demo.mp4`](docs/demo/aperture-demo.mp4).
+`make demo-video` records it again after `make seed-fruit`.
 
 Screenshots from the `e2e` workspace, as the console renders it. `landing/` is a
 one-page React tour built from the same images (`cd landing && npm install &&
