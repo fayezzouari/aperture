@@ -19,13 +19,18 @@ Override BASE / OUT / WORKSPACE / FRUIT_MODELS / AP_EMAIL / AP_PASSWORD / ONLY
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import urllib.request
+from datetime import UTC, datetime
 
 from playwright.sync_api import Page, sync_playwright
 
@@ -42,6 +47,8 @@ MODEL = "fruit-bowl-seg"
 MODEL_NAME = "Fruit bowl segmentation"
 WORKFLOW = "fruit-sorter"
 WEBP = shutil.which("cwebp")
+# where a local MCP client listens for the OAuth answer; nothing needs to run there
+CALLBACK = "http://localhost:33418/callback"
 
 os.makedirs(OUT, exist_ok=True)
 TMP = tempfile.mkdtemp(prefix="aperture-guide-")
@@ -232,6 +239,22 @@ with sync_playwright() as p:
         route.fulfill(response=response, json=report)
 
     page.route("**/v1/reports/run", only_own_rows)
+
+    def live_tokens(route):
+        # the tokens page lists every token this account ever made, test runs' included;
+        # keep the live ones outside those runs, one per name
+        response = route.fetch()
+        now = datetime.now(UTC).isoformat()
+        seen, keep = set(), []
+        for token in response.json():
+            if (token["revoked_at"] or (token["expires_at"] and token["expires_at"] < now)
+                    or token["name"].startswith("e2e") or token["name"] in seen):
+                continue
+            seen.add(token["name"])
+            keep.append(token)
+        route.fulfill(response=response, json=keep)
+
+    page.route("**/v1/auth/tokens*", live_tokens)
 
     # ------------------------------------------------------------ getting started
     @step("login")
@@ -532,6 +555,33 @@ with sync_playwright() as p:
         page.get_by_text("Limits").first.wait_for()
         shot(page, "settings-instance", 600)
 
+    @step("oauth-consent")
+    def _():
+        # what Claude Code's /mcp -> Authenticate opens: register it as a client, load the
+        # consent page with the request it would send, then approve and redeem the code so
+        # the tokens page has a grant marked OAuth
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        client = call("POST", "/v1/oauth/register", TOKEN, {
+            "client_name": "Claude Code", "redirect_uris": [CALLBACK]}, workspace=None)
+        query = urllib.parse.urlencode({
+            "client_id": client["client_id"], "redirect_uri": CALLBACK, "response_type": "code",
+            "code_challenge": challenge, "code_challenge_method": "S256", "state": "guide",
+            "resource": BASE + "/mcp"})
+        goto("/oauth/authorize?" + query, wait="wants to use Aperture")
+        shot(page, "oauth-consent", 600)
+
+        answers: list[str] = []
+        page.route(CALLBACK + "*", lambda route: (answers.append(route.request.url),
+                                                  route.fulfill(body="", content_type="text/plain")))
+        page.get_by_role("button", name="Approve").click()
+        page.wait_for_url(CALLBACK + "*")
+        code = urllib.parse.parse_qs(urllib.parse.urlparse(answers[0]).query)["code"][0]
+        form = urllib.parse.urlencode({"grant_type": "authorization_code", "code": code,
+                                       "client_id": client["client_id"], "redirect_uri": CALLBACK,
+                                       "code_verifier": verifier}).encode()
+        urllib.request.urlopen(urllib.request.Request(BASE + "/v1/oauth/token", data=form))
+
     @step("tokens")
     def _():
         goto("/account/tokens", wait="Connect an agent")
@@ -545,6 +595,7 @@ with sync_playwright() as p:
         box.get_by_placeholder("claude-code on my laptop").fill("claude-code on my laptop")
         shot(page, "token-new")
         close_dialog()
+
 
     browser.close()
 
