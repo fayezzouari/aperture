@@ -129,34 +129,204 @@ export const tokens: Chapter = {
     },
     {
       id: "tokens-mcp",
-      title: "Connect Claude Code, Claude Desktop or Cursor",
+      title: "Connect an agent",
       body: (
         <>
           <p>
-            Aperture serves its API as MCP tools at <code>/mcp</code>: list models, read a model card, look at traffic and failures, run{" "}
-            <code>predict</code> and see the overlay. Nothing to install; an agent connects with a personal access token and is bounded by
-            your roles. The tokens page shows these commands filled in for your instance.
+            Aperture's API is also a set of MCP tools: list models, read a model card, look at traffic and failures, open a captured inference,
+            run <code>predict</code> and see the overlay. An agent connected with your token can do what you can and nothing more, and what it
+            changes shows up in the audit log under your name. There are three ways to connect; pick by the client you use.
           </p>
+          <Rows
+            items={[
+              [
+                "Claude Code, Cursor",
+                <>
+                  Connect to <code>/mcp</code> on this instance. Nothing to install. <code>predict</code> takes image URLs or base64.
+                </>,
+              ],
+              [
+                "Claude Desktop",
+                <>
+                  Install the <code>aperture.mcpb</code> extension from the tokens page. It runs on your computer, so <code>predict</code> can
+                  also read local files.
+                </>,
+              ],
+              [
+                "From a checkout",
+                <>
+                  Run the server yourself over stdio, for any MCP client, when you need local files outside Claude Desktop.
+                </>,
+              ],
+            ]}
+          />
+          <Note title="Before you start">
+            Create a personal access token as described above. An API key works too, but it only reaches <code>predict</code> and{" "}
+            <code>run_workflow</code>.
+          </Note>
+        </>
+      ),
+    },
+    {
+      id: "tokens-mcp-claude-code",
+      title: "Set up Claude Code",
+      body: (
+        <>
+          <Steps>
+            <li>
+              Open <Ui>Personal access tokens</Ui> and copy the command under <Ui>Connect an agent</Ui>. After you create a token, the dialog
+              shows the same command with the token already in it.
+            </li>
+            <li>
+              Run it in a terminal. Add <code>-s user</code> to make Aperture available in every project, not just the current directory.
+            </li>
+            <li>
+              Run <code>claude mcp list</code>. <code>aperture</code> should show as connected. Inside a session, <code>/mcp</code> shows the
+              same.
+            </li>
+            <li>
+              Ask something that needs it, for example "which models had errors in the last day?". Claude asks before it runs a tool the first
+              time.
+            </li>
+          </Steps>
           <Code title="Claude Code">{`claude mcp add --transport http aperture http://localhost:8080/mcp \\
-  --header "Authorization: Bearer ap_pat_xxxx.yyyy"`}</Code>
-          <Code title="Cursor (.cursor/mcp.json)">{`{
+  --header "Authorization: Bearer ap_pat_xxxx.yyyy"
+
+# optional: default to one workspace
+claude mcp add --transport http aperture http://localhost:8080/mcp \\
+  --header "Authorization: Bearer ap_pat_xxxx.yyyy" \\
+  --header "X-Aperture-Workspace: e2e"`}</Code>
+          <p>
+            Without <code>X-Aperture-Workspace</code>, calls act in the workspace you last opened in the console. Every tool also takes{" "}
+            <code>workspace=</code>, and <code>list_workspaces</code> shows the slugs. To change the token later, run{" "}
+            <code>claude mcp remove aperture</code> and add it again.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: "tokens-mcp-cursor",
+      title: "Set up Cursor",
+      body: (
+        <>
+          <Steps>
+            <li>
+              Open <code>.cursor/mcp.json</code> in your project, or <code>~/.cursor/mcp.json</code> for every project, and add the{" "}
+              <code>aperture</code> entry below with your token.
+            </li>
+            <li>
+              Open Cursor's MCP settings and check that <code>aperture</code> is enabled and lists its tools.
+            </li>
+          </Steps>
+          <Code title=".cursor/mcp.json">{`{
   "mcpServers": {
     "aperture": {
       "url": "http://localhost:8080/mcp",
-      "headers": { "Authorization": "Bearer ap_pat_xxxx.yyyy" }
+      "headers": {
+        "Authorization": "Bearer ap_pat_xxxx.yyyy",
+        "X-Aperture-Workspace": "e2e"
+      }
     }
   }
 }`}</Code>
           <p>
-            Since this server runs next to Aperture, not on your machine, <code>predict</code> takes image URLs or base64 rather than file
-            paths. Add an <code>X-Aperture-Workspace</code> header to pick a default workspace; every tool also takes <code>workspace=</code>,
-            and <code>list_workspaces</code> shows the slugs.
-          </p>
-          <p>
-            For Claude Desktop, click <Ui>Download aperture.mcpb</Ui> on the tokens page, open the file, and enter the instance URL and a
-            token. The extension runs on your computer, so <code>predict</code> can read local files as well.
+            <code>X-Aperture-Workspace</code> is optional. Any other client that speaks streamable HTTP and can send a header connects the same
+            way.
           </p>
         </>
+      ),
+    },
+    {
+      id: "tokens-mcp-desktop",
+      title: "Set up Claude Desktop",
+      body: (
+        <>
+          <Steps>
+            <li>
+              On the <Ui>Personal access tokens</Ui> page, click <Ui>Download aperture.mcpb</Ui>.
+            </li>
+            <li>
+              Open the downloaded file. Claude Desktop shows the Aperture extension; click <Ui>Install</Ui>.
+            </li>
+            <li>
+              Fill in <FieldName>Aperture URL</FieldName> with the address you open the console at, <FieldName>Personal access token</FieldName>{" "}
+              with your token, and optionally <FieldName>Default workspace</FieldName> with a workspace slug.
+            </li>
+            <li>
+              Enable the extension and start a new chat. The first start takes a few seconds while Claude Desktop installs its dependencies.
+            </li>
+          </Steps>
+          <p>
+            The token is stored by Claude Desktop as a secret. To change it, open Claude Desktop's settings, find Aperture under extensions and
+            edit its configuration. When Aperture is upgraded, download the extension again from the tokens page so it matches the instance.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: "tokens-mcp-local",
+      title: "Run it from a checkout",
+      body: (
+        <>
+          <p>
+            The same server runs locally over stdio with <code>uv</code> installed and a copy of the repository. Use this when an agent other
+            than Claude Desktop needs to send <code>predict</code> files from your disk.
+          </p>
+          <Code title="Claude Code, local">{`claude mcp add aperture \\
+  -e APERTURE_URL=http://localhost:8080 \\
+  -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \\
+  -e APERTURE_WORKSPACE=e2e \\
+  -- uvx --from /path/to/aperture/mcp aperture-mcp`}</Code>
+          <p>
+            <code>APERTURE_WORKSPACE</code> is optional. A JSON-configured client takes the same command, arguments and environment.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: "tokens-mcp-troubleshoot",
+      title: "If it does not connect",
+      body: (
+        <Rows
+          items={[
+            [
+              <code>unauthenticated</code>,
+              "The request carried no token. Check the Authorization header is spelled exactly Bearer, a space, then the token.",
+            ],
+            [
+              <>
+                <code>token_revoked</code>, <code>token_expired</code>
+              </>,
+              "Create a new token and put it in the client's config: re-add it in Claude Code, edit mcp.json, or reconfigure the extension.",
+            ],
+            [
+              "cannot read files on your machine",
+              <>
+                The remote server cannot see your disk. Pass an image URL or base64, or use Claude Desktop or a local server for files.
+              </>,
+            ],
+            [
+              <>
+                <code>model_not_found</code>, <code>no_workspace</code>
+              </>,
+              <>
+                The call ran in another workspace. Pass <code>workspace=</code> or set <code>X-Aperture-Workspace</code>.
+              </>,
+            ],
+            [
+              <>
+                <code>insufficient_role</code>
+              </>,
+              "Your role does not allow the action, for the agent as for you. Ask a workspace admin.",
+            ],
+            [
+              "502 or connection refused",
+              <>
+                The <code>mcp</code> service is not running on the instance. Ask whoever runs Aperture; see Install and upgrade.
+              </>,
+            ],
+          ]}
+        />
       ),
     },
   ],
