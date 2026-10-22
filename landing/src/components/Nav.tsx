@@ -12,9 +12,9 @@ export function Nav() {
         <a href="#overrides">Overrides</a>
         <a href="#workflows">Workflows</a>
         <a href="#operate">Operate</a>
-        <a href="/docs/">Guide</a>
-        <a className="nav-cta" href="#run">
-          Run it locally →
+        <a href="#run">Run it locally</a>
+        <a className="nav-cta" href="/docs/">
+          Guide →
         </a>
       </nav>
     </header>
