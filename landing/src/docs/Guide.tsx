@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Mark } from "../components/Mark";
-import { Spiral } from "../components/Spiral";
+import { heptagon } from "../lib/heptagon";
 import { Demo } from "./kit";
 import { chapters } from "./chapters";
 
@@ -47,7 +47,6 @@ export function Guide() {
 
   return (
     <div className="wrap docs-wrap">
-      <Spiral className="docs-backdrop" />
       <header className="nav">
         <a className="brand" href="/" aria-label="Aperture home">
           <Mark size={20} />
@@ -76,8 +75,17 @@ export function Guide() {
             </p>
             <Demo caption="Sign in, a model from the playground to deploy, a workflow run, the inference explorer, keys, members, and an agent connecting over MCP." />
           </div>
+          {/* the rail: a hairline from the first chapter to the end of the page, a heptagon at each chapter */}
+          <div className="rail">
           {chapters.map((chapter) => (
             <section key={chapter.id} id={chapter.id} className="chapter">
+              <svg
+                className={`rail-node${active === chapter.id || chapter.sections.some((section) => section.id === active) ? " current" : ""}`}
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <polygon points={heptagon(8, 8.4, 7)} />
+              </svg>
               <p className="eyebrow">{chapter.group}</p>
               <h2>{chapter.title}</h2>
               <div className="chapter-lede">{chapter.lede}</div>
@@ -91,6 +99,7 @@ export function Guide() {
               ))}
             </section>
           ))}
+          </div>
         </main>
       </div>
 
