@@ -301,10 +301,16 @@ class Demo:
         target.click()
         self.wait(after)
 
-    def type(self, target: Locator, text: str) -> None:
-        self.click(target, after=0.2)
-        target.press_sequentially(text, delay=55)
-        self.wait(0.4)
+    def type(self, target: Locator, text: str, hold: float = 1.2) -> None:
+        """Type at a readable pace, then hold so the filled field is seen before moving on."""
+        self.click(target, after=0.3)
+        target.press_sequentially(text, delay=95)
+        self.wait(hold)
+
+    def choose(self, target: Locator, label: str, hold: float = 1.2) -> None:
+        self.point(target)
+        target.select_option(label=label)
+        self.wait(hold)
 
     def nav(self, target: Locator, after: float = 1.0) -> None:
         """Click something that changes page: the old caption goes first."""
@@ -495,8 +501,8 @@ def record(video_dir: str) -> tuple[str, float]:
         demo.click(page.get_by_role("button", name="New key").first, after=0.8)
         dialog = page.get_by_role("dialog").filter(has_text="New API key")
         demo.type(dialog.get_by_placeholder("storefront-app"), "storefront-app")
-        demo.click(dialog.get_by_role("checkbox", name="Every model"), after=0.6)
-        demo.click(dialog.get_by_text(MODEL, exact=True).first, after=0.8)
+        demo.click(dialog.get_by_role("checkbox", name="Every model"), after=1.0)
+        demo.click(dialog.get_by_text(MODEL, exact=True).first, after=1.4)
         page.add_style_tag(content="[role=dialog] pre { filter: blur(7px) !important; }")
         demo.click(dialog.get_by_role("button", name="Create key"), after=0.4)
         once = page.get_by_role("dialog").filter(has_text="Copy this key now")
@@ -510,8 +516,11 @@ def record(video_dir: str) -> tuple[str, float]:
         page.get_by_text("Members").first.wait_for(timeout=15000)
         demo.say("Members and roles", "Viewers read, developers ship models, admins manage members and keys. "
                                       "Instance admins can do everything.", hold=1.0)
+        member = page.get_by_text("Someone with an account on this instance.").locator("xpath=../..")
+        demo.type(member.locator("input"), "picker@fruit.stand")
+        demo.choose(member.locator("select"), "developer")
         demo.point(page.get_by_role("button", name="Add member"))
-        demo.wait(1.2)
+        demo.wait(1.6)
 
         # ------------------------------------------------------------ agents
         demo.go("/account/tokens", wait_for="Connect an agent", settle=0.6)
