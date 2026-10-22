@@ -425,26 +425,27 @@ once, revocable, and unable to mint further tokens. There are three ways to put
 it to work; the tokens page shows the first two filled in for this instance.
 
 **Remote, nothing to install.** The stack runs the server as the `mcp` service
-and the web edge serves it at `/mcp` over streamable HTTP. Each request carries
-its caller's token, so one server serves everyone and each call is still theirs:
+and the web edge serves it at `/mcp` over streamable HTTP. Add the URL and sign
+in when the client asks:
 
 ```bash
-claude mcp add --transport http aperture http://localhost:8080/mcp \
-  --header "Authorization: Bearer ap_pat_xxxx.yyyy"
+claude mcp add --transport http aperture http://localhost:8080/mcp
+# then /mcp in a session -> aperture -> Authenticate
 ```
 
-Cursor (`.cursor/mcp.json`) takes the same as JSON:
+Cursor (`.cursor/mcp.json`) takes `{"mcpServers": {"aperture": {"url":
+"http://localhost:8080/mcp"}}}`. Signing in is OAuth 2.1 with Aperture as its
+own authorization server: the 401 from `/mcp` points at the protected-resource
+metadata (RFC 9728), the client registers itself (RFC 7591), the person
+approves it on the console's consent page at `/oauth/authorize`, and the client
+gets a one-hour access token with a 30-day rotating refresh token (PKCE S256
+throughout). The access token is a personal access token, so the API accepts
+it like any other, and the grant shows on the tokens page marked OAuth, where
+revoking it ends both tokens. `AP_PUBLIC_URL` must be the address clients
+connect with, since it is the issuer and the resource they check.
 
-```json
-{
-  "mcpServers": {
-    "aperture": {
-      "url": "http://localhost:8080/mcp",
-      "headers": { "Authorization": "Bearer ap_pat_xxxx.yyyy" }
-    }
-  }
-}
-```
+A client that cannot open a browser sends a token instead:
+`--header "Authorization: Bearer ap_pat_..."`.
 
 An `X-Aperture-Workspace: <slug>` header sets the default workspace. Because the
 server is not on your machine, `predict` takes image URLs, data URLs or base64,
