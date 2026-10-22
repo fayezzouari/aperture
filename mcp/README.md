@@ -50,14 +50,21 @@ APERTURE_URL=http://api:8000 APERTURE_PUBLIC_URL=https://aperture.internal \
 This is the `mcp` service in `docker-compose.yml`; the web edge proxies `/mcp`
 to it. It holds no token: every request sends its caller's in
 `Authorization: Bearer`, plus an optional `X-Aperture-Workspace`, and the
-server binds them for that request only. Requests without a token get a 401
+server binds them for that request only.
+
+Callers get that token through OAuth. A request without one gets a 401 whose
+`WWW-Authenticate` names `/.well-known/oauth-protected-resource/mcp`, which this
+server answers with Aperture's API as the authorization server. Registration,
+the consent page and the token endpoint live in the API (`backend/app/api/oauth.py`);
+what comes back is a personal access token, so nothing here changes for it. Requests without a token get a 401
 before MCP sees them, and a personal access token the API rejects is refused at
 connect time (the verdict is cached for 60 s). It runs stateless with JSON
 responses, so replicas need no shared state.
 
 ```bash
+claude mcp add --transport http aperture https://aperture.internal/mcp   # sign in via /mcp
 claude mcp add --transport http aperture https://aperture.internal/mcp \
-  --header "Authorization: Bearer ap_pat_xxxx.yyyy"
+  --header "Authorization: Bearer ap_pat_xxxx.yyyy"                       # or a token
 ```
 
 What differs from stdio: `predict` and `run_workflow` refuse file paths, since
