@@ -223,4 +223,20 @@
   }
   .rail-node { position: absolute; left: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-surface); border: 1.5px solid var(--color-ink-3); }
   .rail-node-live { border-color: var(--color-good); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-good) 18%, transparent); }
+
+  /* sign-in: the landing page's opening behind the form. The rings settle in
+     once on load; the panel is translucent so they show through it. */
+  .signin { position: relative; isolation: isolate; overflow: hidden; background: #0b0b0c; }
+  .signin::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(circle at 50% 50%, #141416 0%, rgba(11, 11, 12, 0) 38%);
+  }
+  .opening { position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; pointer-events: none; }
+  .opening-layer { transform-box: view-box; transform-origin: 960px 540px; animation: opening-in 2.4s cubic-bezier(.2, .7, .2, 1) both; }
+  .opening-ring { fill: none; stroke: var(--color-ink); stroke-width: 0.8; vector-effect: non-scaling-stroke; }
+  .opening-ring.production { stroke: #fff; stroke-width: 1.6; }
+  @keyframes opening-in { from { opacity: 0; transform: rotate(calc(-10deg - var(--l) * 3deg)) scale(0.88); } }
+  .signin-title { font-family: "Inter Tight Variable", var(--font-sans); font-weight: 700; letter-spacing: -0.045em; line-height: 1; color: #fff; }
+  .signin .panel { background: rgba(11, 11, 12, 0.82); border-color: #26262a; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  @media (prefers-reduced-motion: reduce) { .opening-layer { animation: none; } }
 }
