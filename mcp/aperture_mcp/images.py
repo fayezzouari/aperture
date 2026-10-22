@@ -1,7 +1,9 @@
 """Images in and images out.
 
 In: whatever the agent has - a path on this machine (stdio runs where the user
-works), an http(s) URL, a data: URL or bare base64. Out: an MCP `Image` block,
+works), an http(s) URL, a data: URL or bare base64. A shared HTTP server runs on
+someone else's machine, so there a path is refused outright: the files it could
+read are the server's, never the caller's. Out: an MCP `Image` block,
 downscaled so a 12-megapixel capture does not become a 16 MB base64 string the
 model would only shrink again anyway.
 """
@@ -26,7 +28,11 @@ class ImageInput:
     size: int = 0  # decoded bytes for base64 inputs; 0 for URLs
 
 
-def load_input(source: str) -> ImageInput:
+REMOTE_PATH_ERROR = ("this Aperture MCP server is remote and cannot read files on your "
+                     "machine; pass an http(s) URL, a data: URL or base64")
+
+
+def load_input(source: str, allow_files: bool = True) -> ImageInput:
     """Turn one agent-supplied image reference into what the API accepts."""
     text = source.strip()
     if not text:
@@ -39,27 +45,31 @@ def load_input(source: str) -> ImageInput:
             raise ValueError("data: URL carries no payload")
         raw = _b64decode(payload, "data URL")
         return ImageInput("base64", base64.b64encode(raw).decode(), len(raw))
+    looks_like_path = text.startswith(("/", "./", "../", "~")) or text.lower().endswith(
+        (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff")
+    )
+    if not allow_files:
+        if looks_like_path:
+            raise ValueError(REMOTE_PATH_ERROR)
+        raw = _b64decode(text, "image", remote=True)
+        return ImageInput("base64", base64.b64encode(raw).decode(), len(raw))
     path = os.path.expanduser(text)
     if os.path.isfile(path):
         with open(path, "rb") as handle:
             raw = handle.read()
         return ImageInput("base64", base64.b64encode(raw).decode(), len(raw))
-    looks_like_path = text.startswith(("/", "./", "../", "~")) or text.lower().endswith(
-        (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff")
-    )
     if looks_like_path:
         raise ValueError(f"no such file: {text}")
     raw = _b64decode(text, "image")
     return ImageInput("base64", base64.b64encode(raw).decode(), len(raw))
 
 
-def _b64decode(payload: str, what: str) -> bytes:
+def _b64decode(payload: str, what: str, remote: bool = False) -> bytes:
     try:
         return base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise ValueError(
-            f"{what} is not a file path, an http(s) URL, a data: URL or valid base64"
-        ) from exc
+        accepted = "an http(s) URL" if remote else "a file path, an http(s) URL"
+        raise ValueError(f"{what} is not {accepted}, a data: URL or valid base64") from exc
 
 
 def to_image(data: bytes, max_px: int) -> Image:
