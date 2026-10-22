@@ -14,6 +14,11 @@ and keeps no session; every request stands alone.
 Two things differ from stdio. File paths in `predict` are refused, because the
 files this process could read are its own. And an API key sees only `predict`
 and `run_workflow` in the tool list, as it would over stdio.
+
+A client that arrives without a token is pointed at OAuth: the 401 names this
+server's protected-resource metadata (RFC 9728), which names Aperture itself as
+the authorization server. The client registers, sends the person to the
+console's consent page, and comes back with a token the API already accepts.
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ from .settings import Settings, mode_of
 log = logging.getLogger("aperture.mcp")
 
 MCP_PATH = "/mcp"
+RESOURCE_METADATA_PATHS = ("/.well-known/oauth-protected-resource",
+                           "/.well-known/oauth-protected-resource" + MCP_PATH)
 INFERENCE_TOOLS = {"predict", "run_workflow"}
 # a batch of images arrives as base64 inside one JSON-RPC body
 MAX_BODY_BYTES = 48 * 1024 * 1024
@@ -126,30 +133,50 @@ class Gate:
         if scope["path"] == "/healthz":
             await _reply(send, 200, {"status": "ok"})
             return
+        if scope["path"] in RESOURCE_METADATA_PATHS:
+            await _reply(send, 200, resource_metadata(self.settings))
+            return
         token = bearer(Headers(scope=scope))
         if token is None:
             await _reply(send, 401, _error(
                 "unauthenticated",
-                "send Authorization: Bearer <personal access token>; create one at "
-                f"{self.settings.console_url}/account/tokens"))
+                "sign in through OAuth, or send Authorization: Bearer <personal access "
+                f"token>; create one at {self.settings.console_url}/account/tokens"),
+                challenge=self._challenge())
             return
         rejected = await self.check.rejection(token)
         if rejected is not None:
-            await _reply(send, 401, rejected)
+            await _reply(send, 401, rejected, challenge=self._challenge('error="invalid_token"'))
             return
         await self.app(scope, receive, send)
+
+    def _challenge(self, *extra: str) -> str:
+        metadata = self.settings.console_url + RESOURCE_METADATA_PATHS[1]
+        return ", ".join(['Bearer realm="aperture"', *extra, f'resource_metadata="{metadata}"'])
+
+
+def resource_metadata(settings: Settings) -> dict:
+    """RFC 9728: this MCP endpoint, protected by Aperture's own authorization server."""
+    base = settings.console_url
+    return {
+        "resource": base + MCP_PATH,
+        "authorization_servers": [base],
+        "bearer_methods_supported": ["header"],
+        "resource_name": "Aperture",
+        "resource_documentation": f"{base}/account/tokens",
+    }
 
 
 def _error(code: str, message: str) -> dict:
     return {"error": {"code": code, "message": message}}
 
 
-async def _reply(send: Send, status: int, body: dict) -> None:
+async def _reply(send: Send, status: int, body: dict, challenge: str | None = None) -> None:
     payload = json.dumps(body).encode()
     headers = [(b"content-type", b"application/json"),
                (b"content-length", str(len(payload)).encode())]
-    if status == 401:
-        headers.append((b"www-authenticate", b'Bearer realm="aperture"'))
+    if challenge:
+        headers.append((b"www-authenticate", challenge.encode()))
     await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": payload})
 
