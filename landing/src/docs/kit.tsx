@@ -11,6 +11,37 @@ export type Chapter = { id: string; group: string; title: string; lede: ReactNod
 /** All guide screenshots: 1440×900 viewports at 2×, WebP, captured by scripts/guide_screenshots.py. */
 const SHOT_DIR = "/screenshots/guide";
 
+/** The walkthrough video (docs/demo, recorded by scripts/demo_video.py) in the same frame as a screenshot.
+ *  Nothing downloads until it is played: the poster is the opening card. */
+export function Demo({ caption }: { caption?: ReactNode }) {
+  return (
+    <figure className="shot-frame demo-frame">
+      <div className="panel">
+        <div className="shot-bar">
+          <span className="dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="mono">Walkthrough · 2:49 · with music</span>
+        </div>
+        <video
+          className="demo-video"
+          src="/demo/aperture-demo.mp4"
+          poster="/demo/aperture-demo-poster.webp"
+          width={1920}
+          height={1080}
+          controls
+          playsInline
+          preload="none"
+          aria-label="A walkthrough of the console in the fruit workspace"
+        />
+      </div>
+      {caption ? <figcaption>{caption}</figcaption> : null}
+    </figure>
+  );
+}
+
 /** A console screenshot in a panel whose header shows the page it was taken on. */
 export function Shot({ name, path, caption, alt }: { name: string; path: string; caption?: ReactNode; alt: string }) {
   const [open, setOpen] = useState(false);
