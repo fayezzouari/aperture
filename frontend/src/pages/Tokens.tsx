@@ -22,22 +22,10 @@ const EXPIRY_OPTIONS: { label: string; days: number | null }[] = [
 ];
 
 function agentConfig(token: string) {
-  const url = window.location.origin;
+  const url = `${window.location.origin}/mcp`;
   return {
-    claudeCode: `claude mcp add aperture -e APERTURE_URL=${url} -e APERTURE_TOKEN=${token} -- uvx --from /path/to/aperture/mcp aperture-mcp`,
-    json: JSON.stringify(
-      {
-        mcpServers: {
-          aperture: {
-            command: "uvx",
-            args: ["--from", "/path/to/aperture/mcp", "aperture-mcp"],
-            env: { APERTURE_URL: url, APERTURE_TOKEN: token },
-          },
-        },
-      },
-      null,
-      2,
-    ),
+    claudeCode: `claude mcp add --transport http aperture ${url} --header "Authorization: Bearer ${token}"`,
+    json: JSON.stringify({ mcpServers: { aperture: { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2),
   };
 }
 
@@ -153,13 +141,27 @@ export default function Tokens() {
       <Panel>
         <PanelHeader
           title="Connect an agent"
-          subtitle="The MCP server in mcp/ turns this API into tools. Point it at this instance with a token; file paths in predict resolve on your machine."
+          subtitle="This instance serves its API as MCP tools at /mcp. An agent connects with a token and can do what you can - nothing to install."
         />
         <div className="space-y-3 px-4 py-4">
           <p className="text-[12px] text-ink-3">Claude Code</p>
           <CodeBlock language="shell" code={snippets.claudeCode} />
-          <p className="text-[12px] text-ink-3">Claude Desktop, Cursor and other JSON-configured clients</p>
+          <p className="text-[12px] text-ink-3">Cursor and other clients configured with JSON</p>
           <CodeBlock language="json" code={snippets.json} />
+          <p className="text-[12px] text-ink-3">
+            The server runs here, so <span className="mono">predict</span> takes image URLs or base64 rather than file paths.
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line px-3 py-2.5">
+            <div>
+              <p className="text-[12.5px] text-ink">Claude Desktop</p>
+              <p className="text-[12px] text-ink-3">
+                Install the extension, then enter <span className="mono">{window.location.origin}</span> and a token. It runs on your computer, so <span className="mono">predict</span> can read local files too.
+              </p>
+            </div>
+            <a className="btn btn-sm" href="/downloads/aperture.mcpb" download>
+              Download aperture.mcpb
+            </a>
+          </div>
           <p className="text-[12px] text-ink-3">
             Or call the API directly with <span className="mono">Authorization: Bearer $APERTURE_TOKEN</span>. A token cannot create further tokens; sign in here for that.
           </p>
@@ -190,7 +192,7 @@ export default function Tokens() {
         {created ? (
           <div className="space-y-3">
             <CodeBlock language="key" code={created.token} />
-            <p className="text-[12px] text-ink-3">Ready to paste into Claude Code:</p>
+            <p className="text-[12px] text-ink-3">Ready to paste into Claude Code. For Claude Desktop, paste the token into the extension.</p>
             <CodeBlock language="shell" code={agentConfig(created.token).claudeCode} />
           </div>
         ) : null}
