@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Mark } from "../components/Mark";
+import { Demo } from "./kit";
 import { chapters } from "./chapters";
 
 /** The guide: the console's sidebar on the left, one long page of chapters on the right. */
@@ -71,6 +72,7 @@ export function Guide() {
               <code>make seed-fruit</code> builds: published YOLOv8 and ResNet-18 checkpoints, served by Aperture on a real photo of a fruit
               bowl, so what you see is what your own models will look like after their first requests.
             </p>
+            <Demo caption="Sign in, a model from the playground to deploy, a workflow run, the inference explorer, keys, members, and an agent connecting over MCP." />
           </div>
           {chapters.map((chapter) => (
             <section key={chapter.id} id={chapter.id} className="chapter">
