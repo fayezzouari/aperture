@@ -22,8 +22,8 @@ export function Hero() {
           <a className="btn-primary" href="#run">
             Run it locally
           </a>
-          <a className="btn-text" href="#ideas">
-            Read the three ideas →
+          <a className="btn-text" href="/docs/">
+            Read the guide →
           </a>
         </div>
       </div>
