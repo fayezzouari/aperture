@@ -1,0 +1,56 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
+  "name": "aperture",
+  "display_name": "Aperture",
+  "version": "0.1.0",
+  "description": "Read Aperture's model registry, fleet, traffic and audit log, run images through a model and look at the overlay that comes back.",
+  "long_description": "Aperture serves, versions and observes computer-vision models. This extension gives Claude the same view the console has: models and their versions, what is deployed and how it behaved, the inference log with its captured images, drift, jobs and the audit log. It can also run an image through a model or a workflow and return the rendered overlay as an image.\n\nIt runs on your machine and calls your Aperture instance's `/v1` API with a personal access token, so it can do exactly what your roles allow and nothing more. Create the token in the console under **account menu → Personal access tokens**.\n\nFile paths given to `predict` are read from this machine.",
+  "author": {
+    "name": "Fiasco"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "uv",
+    "entry_point": "aperture_mcp/__main__.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "--frozen", "aperture-mcp"],
+      "env": {
+        "APERTURE_URL": "${user_config.url}",
+        "APERTURE_TOKEN": "${user_config.token}",
+        "APERTURE_WORKSPACE": "${user_config.workspace}"
+      }
+    }
+  },
+  "user_config": {
+    "url": {
+      "type": "string",
+      "title": "Aperture URL",
+      "description": "The address you open the console at, e.g. https://aperture.internal",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "Personal access token",
+      "description": "Starts with ap_pat_. Create one in the console: account menu → Personal access tokens.",
+      "sensitive": true,
+      "required": true
+    },
+    "workspace": {
+      "type": "string",
+      "title": "Default workspace",
+      "description": "Optional workspace slug. Left empty, calls act in the workspace you last opened in the console.",
+      "required": false,
+      "default": ""
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.10"
+    }
+  },
+  "keywords": ["aperture", "computer-vision", "models", "inference", "mlops"]
+}
