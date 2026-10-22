@@ -85,6 +85,8 @@
 .shot-img { display: block; width: 100%; padding: 0; border: 0; background: var(--panel); cursor: zoom-in; }
 .shot-img img { width: 100%; height: auto; aspect-ratio: 1440 / 900; }
 .shot-frame figcaption { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+.demo-frame { margin-top: 28px; }
+.demo-video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #0b0b0c; }
 
 .lightbox { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(0, 0, 0, 0.88); backdrop-filter: blur(4px); cursor: zoom-out; }
 .lightbox img { max-width: min(100%, 1920px); max-height: 100%; border: 1px solid var(--line-2); border-radius: 10px; }
