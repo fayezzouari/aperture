@@ -195,7 +195,7 @@ export const tokens: Chapter = {
 
 # optional: default to one workspace
 claude mcp add --transport http aperture http://localhost:8080/mcp \\
-  --header "X-Aperture-Workspace: e2e"`}</Code>
+  --header "X-Aperture-Workspace: fruit"`}</Code>
           <p>
             Without <code>X-Aperture-Workspace</code>, calls act in the workspace you last opened in the console. Every tool also takes{" "}
             <code>workspace=</code>, and <code>list_workspaces</code> shows the slugs.
@@ -233,7 +233,7 @@ claude mcp add --transport http aperture http://localhost:8080/mcp \\
   }
 }`}</Code>
           <p>
-            Add <code>{`"headers": { "X-Aperture-Workspace": "e2e" }`}</code> for a default workspace, or an <code>Authorization</code> header
+            Add <code>{`"headers": { "X-Aperture-Workspace": "fruit" }`}</code> for a default workspace, or an <code>Authorization</code> header
             with a personal access token to skip signing in. Any other client that speaks streamable HTTP connects the same way.
           </p>
         </>
@@ -283,7 +283,7 @@ claude mcp add --transport http aperture http://localhost:8080/mcp \\
           <Code title="Claude Code, local">{`claude mcp add aperture \\
   -e APERTURE_URL=http://localhost:8080 \\
   -e APERTURE_TOKEN=ap_pat_xxxx.yyyy \\
-  -e APERTURE_WORKSPACE=e2e \\
+  -e APERTURE_WORKSPACE=fruit \\
   -- uvx --from /path/to/aperture/mcp aperture-mcp`}</Code>
           <p>
             <code>APERTURE_WORKSPACE</code> is optional. A JSON-configured client takes the same command, arguments and environment.
