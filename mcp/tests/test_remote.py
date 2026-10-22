@@ -60,9 +60,24 @@ async def test_no_token_is_refused_before_mcp(api, remote_settings):
     async with running(api, remote_settings) as http:
         response = await rpc(http, "initialize", INIT, token=None)
     assert response.status_code == 401
-    assert response.headers["www-authenticate"].startswith("Bearer")
+    challenge = response.headers["www-authenticate"]
+    assert challenge.startswith("Bearer")
+    assert ('resource_metadata="https://aperture.example/.well-known/'
+            'oauth-protected-resource/mcp"') in challenge
     assert "https://aperture.example/account/tokens" in response.json()["error"]["message"]
     assert api.calls == []
+
+
+@pytest.mark.parametrize("path", ["/.well-known/oauth-protected-resource",
+                                  "/.well-known/oauth-protected-resource/mcp"])
+async def test_resource_metadata_names_aperture_as_the_authorization_server(
+        api, remote_settings, path):
+    async with running(api, remote_settings) as http:
+        response = await http.get(path)
+    assert response.status_code == 200
+    meta = response.json()
+    assert meta["resource"] == "https://aperture.example/mcp"
+    assert meta["authorization_servers"] == ["https://aperture.example"]
 
 
 async def test_revoked_token_fails_at_connect(api, remote_settings):
@@ -72,6 +87,7 @@ async def test_revoked_token_fails_at_connect(api, remote_settings):
         response = await rpc(http, "initialize", INIT)
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "token_revoked"
+    assert 'error="invalid_token"' in response.headers["www-authenticate"]
 
 
 async def test_health_needs_no_token(api, remote_settings):
