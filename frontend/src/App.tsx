@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-r
 import { useQueryClient } from "@tanstack/react-query";
 import { api, session } from "./lib/api";
 import { ActiveWorkspace, useInstance, useMe, useWorkspaces } from "./lib/hooks";
+import { Mark } from "./components/Mark";
 import { ErrorNote, Spinner } from "./components/ui";
 import { FirstWorkspace, WorkspaceSwitcher } from "./components/workspaces";
 
@@ -281,15 +282,6 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </ActiveWorkspace.Provider>
-  );
-}
-
-function Mark() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden>
-      <circle cx="16" cy="16" r="10" fill="none" stroke="#ededed" strokeWidth="2" />
-      <path d="M16 6v20M7.1 11l17.8 10M7.1 21l17.8-10" stroke="#ededed" strokeWidth="1.1" opacity="0.5" />
-    </svg>
   );
 }
 
