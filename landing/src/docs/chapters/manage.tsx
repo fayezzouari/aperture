@@ -134,15 +134,16 @@ export const tokens: Chapter = {
         <>
           <p>
             Aperture's API is also a set of MCP tools: list models, read a model card, look at traffic and failures, open a captured inference,
-            run <code>predict</code> and see the overlay. An agent connected with your token can do what you can and nothing more, and what it
-            changes shows up in the audit log under your name. There are three ways to connect; pick by the client you use.
+            run <code>predict</code> and see the overlay. An agent you connect acts as you and nothing more, and what it changes shows up in
+            the audit log under your name. Pick by the client you use.
           </p>
           <Rows
             items={[
               [
                 "Claude Code, Cursor",
                 <>
-                  Connect to <code>/mcp</code> on this instance. Nothing to install. <code>predict</code> takes image URLs or base64.
+                  Add <code>/mcp</code> on this instance and sign in when the client asks. Nothing to install, no token to copy.{" "}
+                  <code>predict</code> takes image URLs or base64.
                 </>,
               ],
               [
@@ -160,10 +161,11 @@ export const tokens: Chapter = {
               ],
             ]}
           />
-          <Note title="Before you start">
-            Create a personal access token as described above. An API key works too, but it only reaches <code>predict</code> and{" "}
-            <code>run_workflow</code>.
-          </Note>
+          <p>
+            Signing in uses OAuth: the client opens this console in your browser, you approve it, and it receives a token of its own. That
+            grant is listed on the tokens page marked <Ui>OAuth</Ui>; it stays valid while the client keeps using it, lapses after 30 days
+            unused, and <Ui>Revoke</Ui> ends it at once.
+          </p>
         </>
       ),
     },
@@ -174,33 +176,34 @@ export const tokens: Chapter = {
         <>
           <Steps>
             <li>
-              Open <Ui>Personal access tokens</Ui> and copy the command under <Ui>Connect an agent</Ui>. After you create a token, the dialog
-              shows the same command with the token already in it.
+              Add the server. The tokens page under <Ui>Connect an agent</Ui> shows the command with this instance's address. Add{" "}
+              <code>-s user</code> to make Aperture available in every project, not just the current directory.
             </li>
             <li>
-              Run it in a terminal. Add <code>-s user</code> to make Aperture available in every project, not just the current directory.
+              Start <code>claude</code>, run <code>/mcp</code>, select <code>aperture</code> and choose <Ui>Authenticate</Ui>.
             </li>
             <li>
-              Run <code>claude mcp list</code>. <code>aperture</code> should show as connected. Inside a session, <code>/mcp</code> shows the
-              same.
+              Your browser opens the <Ui>Connect an application</Ui> page. Sign in if asked, check that it names Claude Code and sends the
+              answer to <code>localhost</code>, and click <Ui>Approve</Ui>.
             </li>
             <li>
-              Ask something that needs it, for example "which models had errors in the last day?". Claude asks before it runs a tool the first
-              time.
+              Back in the terminal, <code>/mcp</code> shows <code>aperture</code> as connected. Ask something that needs it, for example "which
+              models had errors in the last day?".
             </li>
           </Steps>
-          <Code title="Claude Code">{`claude mcp add --transport http aperture http://localhost:8080/mcp \\
-  --header "Authorization: Bearer ap_pat_xxxx.yyyy"
+          <Code title="Claude Code">{`claude mcp add --transport http aperture http://localhost:8080/mcp
 
 # optional: default to one workspace
 claude mcp add --transport http aperture http://localhost:8080/mcp \\
-  --header "Authorization: Bearer ap_pat_xxxx.yyyy" \\
   --header "X-Aperture-Workspace: e2e"`}</Code>
           <p>
             Without <code>X-Aperture-Workspace</code>, calls act in the workspace you last opened in the console. Every tool also takes{" "}
-            <code>workspace=</code>, and <code>list_workspaces</code> shows the slugs. To change the token later, run{" "}
-            <code>claude mcp remove aperture</code> and add it again.
+            <code>workspace=</code>, and <code>list_workspaces</code> shows the slugs.
           </p>
+          <Note title="Without a browser">
+            On a machine where no browser can open, such as a CI runner, send a personal access token instead:{" "}
+            <code>{`--header "Authorization: Bearer ap_pat_..."`}</code>. The dialog that shows a new token includes this command filled in.
+          </Note>
         </>
       ),
     },
@@ -212,26 +215,26 @@ claude mcp add --transport http aperture http://localhost:8080/mcp \\
           <Steps>
             <li>
               Open <code>.cursor/mcp.json</code> in your project, or <code>~/.cursor/mcp.json</code> for every project, and add the{" "}
-              <code>aperture</code> entry below with your token.
+              <code>aperture</code> entry below.
             </li>
             <li>
-              Open Cursor's MCP settings and check that <code>aperture</code> is enabled and lists its tools.
+              Open Cursor's MCP settings. <code>aperture</code> shows that it needs a login; click it, approve the request in the browser page
+              that opens, and return to Cursor.
+            </li>
+            <li>
+              Check that <code>aperture</code> is enabled and lists its tools.
             </li>
           </Steps>
           <Code title=".cursor/mcp.json">{`{
   "mcpServers": {
     "aperture": {
-      "url": "http://localhost:8080/mcp",
-      "headers": {
-        "Authorization": "Bearer ap_pat_xxxx.yyyy",
-        "X-Aperture-Workspace": "e2e"
-      }
+      "url": "http://localhost:8080/mcp"
     }
   }
 }`}</Code>
           <p>
-            <code>X-Aperture-Workspace</code> is optional. Any other client that speaks streamable HTTP and can send a header connects the same
-            way.
+            Add <code>{`"headers": { "X-Aperture-Workspace": "e2e" }`}</code> for a default workspace, or an <code>Authorization</code> header
+            with a personal access token to skip signing in. Any other client that speaks streamable HTTP connects the same way.
           </p>
         </>
       ),
@@ -260,6 +263,11 @@ claude mcp add --transport http aperture http://localhost:8080/mcp \\
             The token is stored by Claude Desktop as a secret. To change it, open Claude Desktop's settings, find Aperture under extensions and
             edit its configuration. When Aperture is upgraded, download the extension again from the tokens page so it matches the instance.
           </p>
+          <Note title="As a connector instead">
+            When this instance is reachable from the internet over https, you can skip the extension: in Claude Desktop or on claude.ai, add a
+            custom connector with the URL <code>https://your-instance/mcp</code> and approve it the same way as above. Claude connects to
+            connectors from Anthropic's servers, so an instance only your network can reach needs the extension.
+          </Note>
         </>
       ),
     },
@@ -291,13 +299,24 @@ claude mcp add --transport http aperture http://localhost:8080/mcp \\
           items={[
             [
               <code>unauthenticated</code>,
-              "The request carried no token. Check the Authorization header is spelled exactly Bearer, a space, then the token.",
+              "The client has not signed in. Run its authenticate step again (/mcp in Claude Code), or check an Authorization header is spelled Bearer, a space, then the token.",
+            ],
+            [
+              "The browser page says the request cannot be completed",
+              "The client's registration or redirect does not match, or the request is stale. Start connecting again from the client; if it persists, remove the server and add it back.",
+            ],
+            [
+              "resource is not this instance",
+              <>
+                The client used a different address than the instance's <code>AP_PUBLIC_URL</code>, for example <code>127.0.0.1</code> instead
+                of <code>localhost</code>. Connect with the address the console uses.
+              </>,
             ],
             [
               <>
                 <code>token_revoked</code>, <code>token_expired</code>
               </>,
-              "Create a new token and put it in the client's config: re-add it in Claude Code, edit mcp.json, or reconfigure the extension.",
+              "Sign in again from the client. With a token in a header, create a new one and put it in the client's config, or reconfigure the extension.",
             ],
             [
               "cannot read files on your machine",
