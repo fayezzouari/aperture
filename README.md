@@ -8,7 +8,7 @@
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/wordmark-dark.svg">
-    <img src="docs/brand/wordmark-light.svg" alt="Aperture" height="56">
+    <img src="docs/brand/wordmark-light.svg" alt="Aperture" height="64">
   </picture>
 </h1>
 
