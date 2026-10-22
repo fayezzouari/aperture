@@ -274,6 +274,25 @@ services:
     # torch itself holds ~1 GB before any model, hence the larger default
     mem_limit: ${RUNTIME_TORCH_MEM_LIMIT:-4g}
 
+  mcp:
+    # Aperture's MCP tools over streamable HTTP, reached through the web edge at
+    # /mcp. Holds no credential: each request carries its caller's own token.
+    build:
+      context: .
+      dockerfile: mcp/Dockerfile
+    image: aperture/mcp:0.1.0
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      APERTURE_URL: http://api:8000
+      APERTURE_PUBLIC_URL: ${AP_PUBLIC_URL:-http://localhost:8080}
+      # presigned capture URLs name the public endpoint, which is the container
+      # itself when it is localhost; fetch those from MinIO directly instead
+      APERTURE_S3_PUBLIC_ENDPOINT: ${AP_S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      APERTURE_S3_ENDPOINT: http://minio:9000
+
   web:
     build:
       context: .
@@ -282,6 +301,8 @@ services:
     restart: unless-stopped
     depends_on:
       api:
+        condition: service_started
+      mcp:
         condition: service_started
     ports:
       - "${WEB_PORT:-8080}:8080"
