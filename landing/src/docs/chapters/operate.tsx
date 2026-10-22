@@ -92,9 +92,9 @@ export const operate: Chapter = {
           <Shot name="jobs" path="/jobs" alt="The jobs page with a finished export" />
           <Code title="Submit a job from code">{`curl -X POST "http://localhost:8080/v1/jobs" \\
   -H "authorization: Bearer $APERTURE_TOKEN" \\
-  -H "x-aperture-workspace: e2e" \\
+  -H "x-aperture-workspace: fruit" \\
   -H "content-type: application/json" \\
-  -d '{"kind": "bulk_images", "model": "e2e-orchard", "ref": "production",
+  -d '{"kind": "bulk_images", "model": "fruit-bowl-seg", "ref": "production",
        "source_urls": ["https://example.com/photos/0001.jpg"],
        "webhook_url": "https://example.com/aperture-callback"}'
 # -> 202 {"id": "...", "status": "queued"}

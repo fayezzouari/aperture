@@ -1,19 +1,20 @@
-"""Screenshots for the user guide (landing/docs), taken in the `e2e` workspace.
+"""Screenshots for the user guide (landing/docs), taken in the `fruit` workspace.
 
-Run `make e2e` first: it builds the `e2e` workspace with a deployed detector, a
-second model, a published two-stage workflow and some traffic. This script then
-drives Chrome through every page and dialog the guide walks through and writes
-one image per step to docs/screenshots/guide/.
+Run `make seed-fruit` first: it builds the `fruit` workspace from real models - a
+YOLOv8 segmenter in two versions, a ResNet-18 that names fruit varieties, a
+published workflow chaining them, and real traffic on a fruit-bowl photo. This
+script then drives Chrome through every page and dialog the guide walks through
+and writes one image per step to docs/screenshots/guide/.
 
     uv run --with playwright python scripts/guide_screenshots.py
 
 Uses the locally installed Google Chrome (channel="chrome"). Images are 1440x900
 viewports at 2x, converted to WebP with `cwebp` when it is on the PATH (PNG
-otherwise). Names of models outside the e2e workspace - which instance-wide pages
+otherwise). Names of models outside the fruit workspace - which instance-wide pages
 such as Audit can show - and the shown-once secrets are blurred before capture.
 
-Override BASE / OUT / WORKSPACE / AP_EMAIL / AP_PASSWORD / ONLY (comma-separated
-shot names) through the environment.
+Override BASE / OUT / WORKSPACE / FRUIT_MODELS / AP_EMAIL / AP_PASSWORD / ONLY
+(comma-separated shot names) through the environment.
 """
 
 from __future__ import annotations
@@ -29,22 +30,30 @@ import urllib.request
 from playwright.sync_api import Page, sync_playwright
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from make_onnx import build_detector, sample_image  # noqa: E402
+from make_onnx import build_detector  # noqa: E402
 
 BASE = os.environ.get("BASE", "http://localhost:8080")
 OUT = os.environ.get("OUT", os.path.join(os.path.dirname(__file__), "..", "docs", "screenshots", "guide"))
-WORKSPACE = os.environ.get("WORKSPACE", "e2e")
+WORKSPACE = os.environ.get("WORKSPACE", "fruit")
 EMAIL = os.environ.get("AP_EMAIL", "admin@localhost")
 PASSWORD = os.environ.get("AP_PASSWORD", "aperture")
 ONLY = {s for s in os.environ.get("ONLY", "").split(",") if s}
-MODEL = "e2e-orchard"
-WORKFLOW = "e2e-orchard-pipeline"
+MODEL = "fruit-bowl-seg"
+MODEL_NAME = "Fruit bowl segmentation"
+WORKFLOW = "fruit-sorter"
 WEBP = shutil.which("cwebp")
 
 os.makedirs(OUT, exist_ok=True)
 TMP = tempfile.mkdtemp(prefix="aperture-guide-")
-IMAGE = sample_image(os.path.join(TMP, "sample.jpg"))
-WEIGHTS = build_detector(os.path.join(TMP, "detector-v3.onnx"))
+IMAGE = os.path.join(os.path.dirname(__file__), "..", "docs", "screenshots", "landing", "fruit-bowl.jpg")
+# what the New version dialog is shown holding: the larger checkpoint the seed
+# exported, or a stand-in under the same name when that directory is not here
+MODELS = os.environ.get("FRUIT_MODELS", "/tmp/aperture-fruit")
+WEIGHTS = os.path.join(TMP, "yolov8s-seg.onnx")
+if os.path.exists(os.path.join(MODELS, "yolov8s-seg.onnx")):
+    shutil.copy(os.path.join(MODELS, "yolov8s-seg.onnx"), WEIGHTS)
+else:
+    build_detector(WEIGHTS)
 
 
 def call(method: str, path: str, token: str, body: dict | None = None, workspace: str | None = WORKSPACE):
@@ -66,7 +75,7 @@ login = urllib.request.Request(BASE + "/v1/auth/login", headers={"content-type":
 TOKEN = json.load(urllib.request.urlopen(login))["access_token"]
 
 # Instance-wide pages (audit, fleet, alerts) can name models from other
-# workspaces; those names are blurred, e2e's own are not.
+# workspaces; those names are blurred, the fruit workspace's own are not.
 SECRETS: set[str] = set()
 # The console's workspace menu shows only these two; any other workspace on the
 # instance is left out of the screenshots and its name blurred where it shows up.
@@ -80,15 +89,16 @@ for ws in call("GET", "/v1/workspaces", TOKEN, workspace=None):
         SECRETS |= {s for s in (model["slug"], model["name"]) if s and len(s) >= 4}
     for flow in call("GET", "/v1/workflows", TOKEN, workspace=ws["slug"]):
         SECRETS |= {s for s in (flow["slug"], flow["name"]) if s and len(s) >= 4}
-# a name the e2e workspace uses too is e2e's to show
+# a name the fruit workspace uses too is its own to show
 OWN = {s for model in call("GET", "/v1/models?limit=500&include_archived=true", TOKEN)
        for s in (model["slug"], model["name"])}
 OWN |= {s for flow in call("GET", "/v1/workflows", TOKEN) for s in (flow["slug"], flow["name"])}
-SECRETS -= OWN | {"other", "detection", "segmentation", "classification"}
+GENERIC = {"other", "detection", "segmentation", "classification"}  # task names, never a secret
+SECRETS -= OWN | GENERIC
 
 # The audit log is instance-wide and outlives what it names: anything it labels that
-# the e2e workspace does not have now (a deleted model, another workspace's key) is blurred.
-CURRENT = OWN | SHOWN | {"End to end", "General"} | {key["name"] for key in call("GET", "/v1/keys", TOKEN)}
+# the fruit workspace does not have now (a deleted model, another workspace's key) is blurred.
+CURRENT = OWN | SHOWN | {"Fruit stand", "General"} | {key["name"] for key in call("GET", "/v1/keys", TOKEN)}
 CURRENT |= {rule["name"] for rule in call("GET", "/v1/alerts", TOKEN)}
 AUDIT: list[dict] = []
 while len(AUDIT) < 5000:
@@ -101,6 +111,7 @@ for row in AUDIT:
         label = (row.get("target_label") or "").split(" ")[0]
         if len(label) >= 4 and label not in CURRENT:
             SECRETS.add(label)
+SECRETS -= GENERIC
 
 # A job and an alert rule, so those pages are not empty. Both are harmless: the
 # export only reads, and the rule's webhook is a placeholder that never fires.
@@ -108,9 +119,9 @@ try:
     call("POST", "/v1/jobs/exports/flagged?fmt=coco&since_hours=48", TOKEN)
 except Exception as exc:  # noqa: BLE001 - a missing worker should not stop the screenshots
     print("could not queue an export:", exc, file=sys.stderr)
-if not any(rule["name"] == "e2e error rate" for rule in call("GET", "/v1/alerts", TOKEN)):
+if not any(rule["name"] == "Fruit error rate" for rule in call("GET", "/v1/alerts", TOKEN)):
     call("POST", "/v1/alerts", TOKEN, {
-        "name": "e2e error rate", "metric": "error_rate", "comparator": ">", "threshold": 0.05,
+        "name": "Fruit error rate", "metric": "error_rate", "comparator": ">", "threshold": 0.05,
         "window_minutes": 5, "min_samples": 20, "channel": "webhook",
         "destination": "https://example.invalid/aperture-alerts", "enabled": True,
     })
@@ -119,7 +130,7 @@ BLUR_JS = """
 (terms) => {
   if (!terms.length) return;
   const esc = s => s.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
-  // whole names only: another workspace's `orchard` must not blur half of `e2e-orchard`
+  // whole names only: another workspace's `fruit` must not blur half of `fruit-bowl-seg`
   const re = new RegExp('(?<![\\w-])(' + terms.sort((a, b) => b.length - a.length).map(esc).join('|') + ')(?![\\w-])', 'g');
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const hits = [];
@@ -206,7 +217,7 @@ with sync_playwright() as p:
     page.route("**/v1/workspaces", only_shown)
 
     def only_own_rows(route):
-        # reports are instance-wide; keep the rows about the e2e workspace's models
+        # reports are instance-wide; keep the rows about the fruit workspace's models
         response = route.fetch()
         try:
             report = response.json()
@@ -234,7 +245,7 @@ with sync_playwright() as p:
     page.locator("#password").fill(PASSWORD)
     page.get_by_role("button", name="Sign in").click()
     page.wait_for_url(lambda url: "/login" not in url, timeout=15000)
-    # open on the e2e workspace, the way a user who switched to it last would
+    # open on the fruit workspace, the way a user who switched to it last would
     call("POST", f"/v1/workspaces/{WORKSPACE}/activate", TOKEN, workspace=None)
 
     @step("overview")
@@ -288,12 +299,12 @@ with sync_playwright() as p:
     # -------------------------------------------------------------------- models
     @step("models-list")
     def _():
-        goto("/models", wait="Orchard counter")
+        goto("/models", wait=MODEL_NAME)
         shot(page, "models-list", 1000)
 
     @step("model-new")
     def _():
-        goto("/models", wait="Orchard counter")
+        goto("/models", wait=MODEL_NAME)
         page.get_by_role("button", name="New model", exact=True).first.click()
         box = dialog("New model")
         box.get_by_placeholder("Bird species detector").fill("Bird species detector")
@@ -303,7 +314,7 @@ with sync_playwright() as p:
 
     @step("model-import")
     def _():
-        goto("/models", wait="Orchard counter")
+        goto("/models", wait=MODEL_NAME)
         page.get_by_role("button", name="Import from Roboflow").click()
         box = dialog("Import from Roboflow")
         box.get_by_placeholder("https://app.roboflow.com/workspace/project/models/project/13").fill(
@@ -464,7 +475,7 @@ with sync_playwright() as p:
         goto("/alerts", wait="Recent alert events")
         page.get_by_role("button", name="New rule").first.click()
         box = dialog("New alert rule")
-        box.get_by_placeholder("Error rate above 2%").fill("Orchard p99 latency")
+        box.get_by_placeholder("Error rate above 2%").fill("Fruit bowl p99 latency")
         shot(page, "alert-new")
         close_dialog()
 

@@ -67,8 +67,9 @@ export function Guide() {
             <p className="eyebrow">User guide</p>
             <h1>Everything the console does, one step at a time.</h1>
             <p className="lede">
-              From signing in to rolling back a release. Every screenshot was taken in the <code>e2e</code> workspace that the end-to-end
-              check builds, so what you see is what a fresh install looks like after one real run.
+              From signing in to rolling back a release. Every screenshot was taken in the <code>fruit</code> workspace that{" "}
+              <code>make seed-fruit</code> builds: published YOLOv8 and ResNet-18 checkpoints, served by Aperture on a real photo of a fruit
+              bowl, so what you see is what your own models will look like after their first requests.
             </p>
           </div>
           {chapters.map((chapter) => (

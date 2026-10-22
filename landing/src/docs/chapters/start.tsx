@@ -35,7 +35,8 @@ export const install: Chapter = {
 cp .env.example .env          # change the CHANGE ME values
 make up                       # build and start; also how you upgrade
 make seed                     # optional: a demo workspace with traffic
-make e2e                      # optional: the end-to-end check (builds the e2e workspace)`}</Code>
+make e2e                      # optional: the end-to-end check (builds the e2e workspace)
+make seed-fruit               # optional: the real models the guide's screenshots show`}</Code>
         </>
       ),
     },
@@ -117,7 +118,7 @@ export const basics: Chapter = {
           <Shot
             name="overview"
             path="/"
-            alt="The overview of the e2e workspace: requests, error rate, latency, replicas, runtimes and recent failures"
+            alt="The overview of the fruit workspace: requests, error rate, latency, replicas, runtimes and recent failures"
             caption="The overview is titled with the workspace's name. It covers the last 24 hours and refreshes every 15 seconds."
           />
         </>
