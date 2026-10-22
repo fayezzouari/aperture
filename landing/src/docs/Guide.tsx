@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Mark } from "../components/Mark";
+import { Spiral } from "../components/Spiral";
 import { Demo } from "./kit";
 import { chapters } from "./chapters";
 
@@ -46,6 +47,7 @@ export function Guide() {
 
   return (
     <div className="wrap docs-wrap">
+      <Spiral className="docs-backdrop" />
       <header className="nav">
         <a className="brand" href="/" aria-label="Aperture home">
           <Mark size={20} />
