@@ -699,3 +699,7 @@ mcp/        MCP server (stdio): the /v1 API as tools for coding agents
 * ONNX export from a `.pt` checkpoint and INT8/FP16 quantisation run in the
   worker and need the optional torch/onnx extras; TensorRT engines must be built
   on a host with the same GPU and driver as the runtime that will serve them.
+
+## License
+
+Apache License 2.0. See [`LICENSE`](LICENSE).
