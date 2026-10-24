@@ -46,6 +46,8 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 .nav-links { display: flex; align-items: center; gap: 36px; font-size: 15px; }
 .nav-links a:hover { color: var(--white); }
 .nav-cta { font-weight: 500; color: var(--white); }
+.nav-github { display: inline-flex; align-items: center; gap: 8px; }
+.nav-github svg { flex: none; }
 
 /* ---- shared section rhythm ------------------------------------------------- */
 section { position: relative; padding: 140px var(--gutter); }
@@ -229,7 +231,8 @@ section { position: relative; padding: 140px var(--gutter); }
 
 /* ---- small screens ------------------------------------------------------------- */
 @media (max-width: 960px) {
-  .nav-links a:not(.nav-cta) { display: none; }
+  .nav-links a:not(.nav-cta):not(.nav-github) { display: none; }
+  .nav-github span { display: none; }
   .idea header { flex-direction: column; gap: 12px; }
   .idea header p { flex: none; }
   .box-label { font-size: 10px; padding: 2px 5px; line-height: 13px; }
