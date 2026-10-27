@@ -462,7 +462,8 @@ def _infer_class_columns(outputs: list[np.ndarray], config: ModelConfig) -> int 
     if not outputs:
         return None
     first = outputs[0]
-    if decoder in (Decoder.classifier_softmax, Decoder.classifier_sigmoid):
+    if decoder in (Decoder.classifier_softmax, Decoder.classifier_sigmoid,
+                   Decoder.classifier_probs):
         return int(first.reshape(first.shape[0], -1).shape[1])
     if decoder == Decoder.detr:
         return int(first.shape[-1]) if first.ndim == 3 else None
