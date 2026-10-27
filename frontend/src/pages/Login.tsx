@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, session } from "../lib/api";
-import "@fontsource-variable/inter-tight";
 import { Mark } from "../components/Mark";
 import { Opening } from "../components/Opening";
 import { Button, ErrorNote, Field } from "../components/ui";
