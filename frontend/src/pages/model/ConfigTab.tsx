@@ -58,7 +58,7 @@ function parseCharset(text: string): string[] {
   return text.split("\n").map((line) => line.replace(/\r$/, "")).filter((line) => line !== "");
 }
 
-const DECODERS = ["yolo_v5", "yolo_v8", "yolo_seg", "yolo_pose", "detr", "classifier_softmax", "classifier_sigmoid", "embedding", "ctc_greedy", "binary_mask", "passthrough"];
+const DECODERS = ["yolo_v5", "yolo_v8", "yolo_seg", "yolo_pose", "detr", "classifier_softmax", "classifier_sigmoid", "classifier_probs", "embedding", "ctc_greedy", "binary_mask", "passthrough"];
 
 /**
  * R6.3 - the config editor with a live preview. Editing is only allowed while a
