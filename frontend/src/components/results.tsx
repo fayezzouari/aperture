@@ -446,7 +446,7 @@ export function ResultViewer({
             <li
               key={index}
               className={`flex cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-[12px] ${
-                active === index ? "bg-[#111116]" : "hover:bg-[#0c0c0e]"
+                active === index ? "bg-hover" : "hover:bg-raised"
               }`}
               onMouseEnter={() => setHovered(index)}
               onMouseLeave={() => setHovered(null)}
