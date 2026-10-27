@@ -60,7 +60,7 @@ export default function OverviewPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold tracking-tight">{workspace?.name ?? "Overview"}</h1>
+          <h1 className="page-title">{workspace?.name ?? "Overview"}</h1>
           <p className="mt-0.5 text-[12.5px] text-ink-3">
             How this workspace is behaving right now. Last 24 hours, refreshed every 15 seconds.
           </p>
