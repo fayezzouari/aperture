@@ -4,6 +4,8 @@ import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { ToastHost } from "./components/ui";
+import "@fontsource-variable/instrument-sans";
+import "@fontsource-variable/inter-tight";
 import "./styles.css";
 
 const queryClient = new QueryClient({
