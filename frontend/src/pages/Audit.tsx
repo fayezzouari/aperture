@@ -33,7 +33,7 @@ export default function Audit() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">Audit log</h1>
+        <h1 className="page-title">Audit log</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">Every mutating action: uploads, publishes, retags, deploys, key issuance, purges. Append-only.</p>
       </div>
 
