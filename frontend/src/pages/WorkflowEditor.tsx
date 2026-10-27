@@ -223,7 +223,7 @@ function Editor() {
             <span>/</span>
             <span className="mono text-ink-2">{data.slug}</span>
           </nav>
-          <h1 className="mt-1 flex items-center gap-2.5 text-[19px] font-semibold tracking-tight">
+          <h1 className="mt-1 flex items-center gap-2.5 page-title">
             {data.name}
             <Badge kind={data.status === "published" ? "good" : "neutral"}>
               {data.status === "published" ? `published · r${data.revision}` : "draft"}
