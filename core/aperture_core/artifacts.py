@@ -247,7 +247,7 @@ def _ultralytics_preset(blob: bytes) -> str:
     if b"PoseModel" in blob:
         return "yolov8-pose"
     if b"ClassificationModel" in blob:
-        return "resnet-imagenet"
+        return "yolov8-cls"
     match = re.search(rb"yolo(?:v)?(\d+)", blob)
     if match and match.group(1) in (b"11", b"12"):
         return "yolov11"
