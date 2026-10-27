@@ -1001,11 +1001,13 @@ def _roboflow_preset(model_type: str | None) -> str | None:
 BACKGROUND_SENTINEL = "background_class"
 
 
-def parse_roboflow_ref(ref: str) -> tuple[str, str, int]:
-    """workspace, project, version - from a link or a bare `ws/project/version`.
+def parse_roboflow_ref(ref: str) -> tuple[str, str, int | None, str | None]:
+    """workspace, project, version, trained model - from a link or `ws/project/version`.
 
     Accepts what people actually have in hand: the app URL they were just looking
-    at, the `model_id` a workflow names, or the three parts typed by hand.
+    at, the `model_id` a workflow names, or the three parts typed by hand. A
+    trained-model link names the model, not the version; the version is left
+    None and looked up from Roboflow by `_roboflow_model_version`.
     """
     cleaned = (ref or "").strip()
     for prefix in ("https://", "http://"):
@@ -1016,19 +1018,45 @@ def parse_roboflow_ref(ref: str) -> tuple[str, str, int]:
     # The app has several shapes for the same model, and people paste whichever
     # page they were on:
     #   ws/project/13                       the version
-    #   ws/project/models/project/13        the trained-model page
     #   ws/project/13/images                a version's images
-    # The workspace and project are always the first two segments, and the
-    # version is the last bare number - so take it from the end.
+    #   ws/project/models/project/13        the trained-model page, older projects
+    #   ws/project/models/ws/<model>        the trained-model page, by model id
+    # The workspace and project are always the first two segments.
     if len(parts) >= 3:
-        for candidate in reversed(parts[2:]):
+        rest = parts[2:]
+        if rest[0] == "models" and len(rest) > 1 and not rest[-1].isdigit():
+            return parts[0], parts[1], None, rest[-1]
+        for candidate in reversed(rest):
             if candidate.isdigit():
-                return parts[0], parts[1], int(candidate)
+                return parts[0], parts[1], int(candidate), None
     raise ApiError(
         "invalid_request",
         "expected a Roboflow model reference like "
         "'workspace/project/version' or https://app.roboflow.com/workspace/project/version, "
         f"got '{ref}'",
+    )
+
+
+async def _roboflow_model_version(client: httpx.AsyncClient, workspace: str, project_id: str,
+                                  model: str, api_key: str) -> int:
+    """The dataset version a trained model was trained on, as Roboflow records it."""
+    resp = await client.get(f"{ROBOFLOW_API}/{workspace}/{project_id}/models",
+                            params={"api_key": api_key})
+    if resp.status_code >= 400:
+        raise ApiError(
+            "not_found",
+            f"Roboflow refused the model list of {workspace}/{project_id}: "
+            f"HTTP {resp.status_code}. Check the reference and the API key.",
+        )
+    listed = resp.json()
+    listed = listed.get("models", []) if isinstance(listed, dict) else listed
+    for entry in listed:
+        if str(entry.get("url", "")).rsplit("/", 1)[-1] == model and entry.get("version"):
+            return int(entry["version"])
+    raise ApiError(
+        "not_found",
+        f"{workspace}/{project_id} has no trained model '{model}'",
+        details={"known": [str(e.get("url", "")).rsplit("/", 1)[-1] for e in listed]},
     )
 
 
@@ -1056,15 +1084,22 @@ def _roboflow_classes(payload: dict) -> list[str]:
     return [str(c) for c in classes]
 
 
-async def _roboflow_served_classes(client: httpx.AsyncClient, project_id: str, version: int,
-                                   api_key: str) -> list:
-    """The class list Roboflow serves a version's weights with, when its metadata lists none.
+async def _roboflow_served_classes(client: httpx.AsyncClient, workspace: str, project_id: str,
+                                   version: int, trained_id: str | None, api_key: str) -> list:
+    """The class list Roboflow serves the weights with, for versions whose metadata lists none.
 
     Newer versions answer `classes: []` on the version endpoint while the model
-    itself still carries its ordered list - the one inference reads.
+    itself still carries its ordered list - the one inference reads. A trained
+    model is only reachable by its model id; a version by project and number.
     """
-    resp = await client.get(f"{ROBOFLOW_API}/ort/{project_id}/{version}", params={"api_key": api_key})
-    classes = (resp.json().get("ort") or {}).get("classes") if resp.status_code < 400 else None
+    if trained_id:
+        resp = await client.get(f"{ROBOFLOW_API}/getWeights",
+                                params={"model": f"{workspace}/{trained_id}", "api_key": api_key})
+        classes = resp.json().get("classes") if resp.status_code < 400 else None
+    else:
+        resp = await client.get(f"{ROBOFLOW_API}/ort/{project_id}/{version}",
+                                params={"api_key": api_key})
+        classes = (resp.json().get("ort") or {}).get("classes") if resp.status_code < 400 else None
     return classes if isinstance(classes, list) else []
 
 
@@ -1093,8 +1128,8 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             return {"skipped": True}
         params = job.params or {}
         try:
-            workspace, project_id, version = (
-                params["workspace"], params["project"], int(params["version"]))
+            workspace, project_id = params["workspace"], params["project"]
+            trained_id = params.get("model")
             from aperture_core.artifacts import inspect_artifact
 
             api_key = api_key or params.get("api_key") or settings.roboflow_api_key
@@ -1104,6 +1139,11 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                     "no Roboflow API key: set AP_ROBOFLOW_API_KEY or send one with the import",
                 )
             async with httpx.AsyncClient(timeout=60.0) as client:
+                if params.get("version") is not None:
+                    version = int(params["version"])
+                else:
+                    version = await _roboflow_model_version(
+                        client, workspace, project_id, trained_id, api_key)
                 resp = await client.get(
                     f"{ROBOFLOW_API}/{workspace}/{project_id}/{version}",
                     params={"api_key": api_key})
@@ -1117,7 +1157,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                 detail = payload.get("version") or {}
                 if isinstance(detail, dict) and detail.get("classes") == []:
                     detail["classes"] = await _roboflow_served_classes(
-                        client, project_id, version, api_key)
+                        client, workspace, project_id, version, trained_id, api_key)
             classes = _roboflow_classes(payload)
             detail = payload.get("version") or {}
 
@@ -1133,7 +1173,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
 
             with tempfile.TemporaryDirectory(prefix="aperture-rfimport-") as tmp:
                 weights, model_type = _roboflow_download(
-                    workspace, project_id, version, api_key, tmp)
+                    workspace, project_id, version, api_key, tmp, trained_id)
                 preset = params.get("preset") or _roboflow_preset(model_type)
                 if not preset:
                     raise ApiError(
@@ -1236,8 +1276,8 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             return {"error": str(exc)}
 
 
-def _roboflow_download(workspace: str, project_id: str, version: int,
-                       api_key: str, out_dir: str) -> tuple[str, str | None]:
+def _roboflow_download(workspace: str, project_id: str, version: int, api_key: str,
+                       out_dir: str, trained_id: str | None = None) -> tuple[str, str | None]:
     """The version's trained weights on disk, plus Roboflow's model type.
 
     `version.model` is deprecated and returns None on current Roboflow projects, so this
@@ -1262,7 +1302,18 @@ def _roboflow_download(workspace: str, project_id: str, version: int,
             "not_found",
             f"Roboflow {workspace}/{project_id}/{version} has no trained model to download",
         )
+    # a version can carry several trained models; a link to one names which
     trained_model = trained[0]
+    if trained_id:
+        named = [m for m in trained if str(m.model_id).rsplit("/", 1)[-1] == trained_id]
+        if not named:
+            raise ApiError(
+                "not_found",
+                f"Roboflow {workspace}/{project_id}/{version} has no trained model "
+                f"'{trained_id}'",
+                details={"known": [str(m.model_id) for m in trained]},
+            )
+        trained_model = named[0]
     model_type = getattr(trained_model, "model_type", None)
 
     # the SDK writes into the working directory, so give it one of its own
