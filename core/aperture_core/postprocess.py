@@ -315,11 +315,16 @@ def decode_detr_seg(outputs: Outputs, cfg: ModelConfig, geoms: list[Geometry],
 
 
 def decode_classification(outputs: Outputs, cfg: ModelConfig, geoms: list[Geometry],
-                          batch: int, sigmoid: bool) -> list[ImageResult]:
+                          batch: int, activation: str) -> list[ImageResult]:
     logits = _pick(outputs, cfg, "logits", 0)
     if logits.ndim > 2:
         logits = logits.reshape(logits.shape[0], -1)
-    probs = _sigmoid(logits) if sigmoid else _softmax(logits.astype(np.float32))
+    if activation == "sigmoid":
+        probs = _sigmoid(logits)
+    elif activation == "softmax":
+        probs = _softmax(logits.astype(np.float32))
+    else:  # a second softmax over probabilities flattens every score to ~1/classes
+        probs = logits.astype(np.float32)
     pp = cfg.postprocess
     results = []
     for i in range(batch):
@@ -603,8 +608,9 @@ _DISPATCH = {
     Decoder.yolo_seg: decode_yolo_seg,
     Decoder.yolo_pose: decode_pose,
     Decoder.binary_mask: decode_binary_mask,
-    Decoder.classifier_softmax: lambda o, c, g, b: decode_classification(o, c, g, b, sigmoid=False),
-    Decoder.classifier_sigmoid: lambda o, c, g, b: decode_classification(o, c, g, b, sigmoid=True),
+    Decoder.classifier_softmax: lambda o, c, g, b: decode_classification(o, c, g, b, "softmax"),
+    Decoder.classifier_sigmoid: lambda o, c, g, b: decode_classification(o, c, g, b, "sigmoid"),
+    Decoder.classifier_probs: lambda o, c, g, b: decode_classification(o, c, g, b, "none"),
     Decoder.embedding: decode_embedding,
     Decoder.ctc_greedy: decode_ctc,
     Decoder.passthrough: decode_passthrough,
