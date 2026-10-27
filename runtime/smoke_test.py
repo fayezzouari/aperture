@@ -287,19 +287,31 @@ async def main():
         per_request = rt.request_need_mb([(2000, 1500)])  # ~51 MB at the default factor
         rt_settings.memory_budget_mb = rss_mb()  # resident versions have used their budget
         rt_settings.request_memory_ceiling_mb = rss_mb() + per_request * 2 + per_request // 2
-        replies = await asyncio.gather(*[
-            c.post("/v1/infer", headers=headers, json={
-                "request_id": f"m{i}", "version_id": "v-burst",
-                "images": [{"b64": big_b64}], "deadline_ms": 30000}) for i in range(8)])
-        statuses = sorted(r.status_code for r in replies)
-        refused = [r.json()["error"] for r in replies if r.status_code == 503]
-        checks.append(("a burst over the request headroom gets queue_full and releases memory",
+        async def _burst(tag):
+            replies = await asyncio.gather(*[
+                c.post("/v1/infer", headers=headers, json={
+                    "request_id": f"{tag}{i}", "version_id": "v-burst",
+                    "images": [{"b64": big_b64}], "deadline_ms": 30000}) for i in range(8)])
+            return sorted(r.status_code for r in replies), [
+                r.json()["error"] for r in replies if r.status_code == 503]
+
+        statuses, refused = await _burst("m")
+        checks.append(("a burst over the request headroom waits its turn and releases memory",
+                       statuses == [200] * 8 and store.requests.reserved_mb == 0
+                       and store.requests.in_flight == 0 and store.requests.waiting == 0,
+                       {"statuses": statuses, "reserved_after": store.requests.reserved_mb}))
+        rt_settings.request_admission_max_waiting = 0  # no waiting room: the old refusal
+        # the first burst grew the process; measure the room from where it stands now
+        rt_settings.memory_budget_mb = rss_mb()
+        rt_settings.request_memory_ceiling_mb = rss_mb() + per_request * 2 + per_request // 2
+        statuses, refused = await _burst("n")
+        checks.append(("past the waiting room a burst gets queue_full, not payload_too_large",
                        statuses.count(200) >= 1 and len(refused) >= 1
                        and all(e["code"] == "queue_full" and e["details"]["needs_mb"]
                                == per_request for e in refused)
-                       and store.requests.reserved_mb == 0 and store.requests.in_flight == 0
-                       and set(statuses) <= {200, 503},
+                       and store.requests.reserved_mb == 0 and set(statuses) <= {200, 503},
                        {"statuses": statuses, "reserved_after": store.requests.reserved_mb}))
+        rt_settings.request_admission_max_waiting = 64
 
         # 21 - one request that could never fit is refused as too large, not retried forever
         rt_settings.memory_budget_mb = rss_mb()
@@ -332,6 +344,28 @@ async def main():
                        (need1, need2, need3) == (5, 5, 305) and t4 is None and need4 == 305
                        and need5 == 5 and gate.reserved_mb == 0,
                        {"needs": [need1, need2, need3, need4, need5]}))
+        rt_settings.request_memory_ceiling_mb = 0
+
+        # 23 - a request that only lacks the room an in-flight one holds waits for it
+        gate = Admission()
+        gate.warmed("v-wait", 1)                          # arena holds one image
+        rt_settings.request_memory_ceiling_mb = rss_mb() + 200
+        first, _, _ = gate.try_reserve("v-wait", 1, 5, 300)
+        waiter = asyncio.create_task(gate.reserve("v-wait", 1, 5, 300, timeout_s=5, max_waiting=4))
+        await asyncio.sleep(0.05)
+        parked = gate.waiting
+        gate.release(first)
+        second, need_second, _ = await waiter
+        gate.release(second)
+        # ...and gives up when the room is not freed in time, or nothing is in flight to wait on
+        held, _, _ = gate.try_reserve("v-wait", 1, 5, 300)
+        late, _, _ = await gate.reserve("v-wait", 1, 5, 300, timeout_s=0.1, max_waiting=4)
+        gate.release(held)
+        alone, _, _ = await gate.reserve("v-big", 1, 400, 0, timeout_s=5, max_waiting=4)
+        checks.append(("a request short only of in-flight memory waits for it instead of failing",
+                       parked == 1 and second is not None and need_second == 5 and late is None
+                       and alone is None and gate.reserved_mb == 0 and gate.waiting == 0,
+                       {"parked": parked, "second": second is not None, "late": late, "alone": alone}))
         rt_settings.request_memory_ceiling_mb = 0
 
         await slow.drain()

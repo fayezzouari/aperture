@@ -20,6 +20,7 @@ process cgroup-OOM-killed and every resident version reloaded.
 
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import json
 import logging
@@ -187,6 +188,9 @@ class Admission:
         self._last_trim = 0.0
         self._busy: dict[str, int] = {}        # images in flight per version
         self._high_water: dict[str, int] = {}  # most images a version's arena has held
+        self.waiting = 0                       # requests parked in reserve() for memory
+        self._freed: asyncio.Event | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def warmed(self, version_id: str, images: int) -> None:
         """A version was (re)loaded and warmed at this batch size: its arena starts here."""
@@ -223,6 +227,51 @@ class Admission:
             self._high_water[version_id] = max(self._high_water.get(version_id, 1), busy)
             return Ticket(version_id, images, need), need, headroom
 
+    async def reserve(self, version_id: str, images: int, buffers_mb: int, activation_mb: int,
+                      timeout_s: float, max_waiting: int) -> tuple[Ticket | None, int, int]:
+        """`try_reserve`, waiting up to `timeout_s` for in-flight requests to free memory.
+
+        A replica whose arena holds one batch serves one request at a time; the
+        next one is not too large, only early. Refusing it turned every second
+        concurrent caller into an error, so it waits here instead, the way the
+        batcher queues work. It gives up - and the caller gets queue_full - when
+        nothing is in flight to wait for, when `max_waiting` requests are
+        already parked, or when the time runs out.
+        """
+        ticket, need, headroom = self.try_reserve(version_id, images, buffers_mb, activation_mb)
+        if ticket is not None or self.in_flight == 0 or self.waiting >= max_waiting:
+            return ticket, need, headroom
+        self._loop = asyncio.get_running_loop()
+        deadline = self._loop.time() + timeout_s
+        self.waiting += 1
+        try:
+            while True:
+                # take the event before retrying: a release after this point sets it,
+                # and nothing between the retry and the wait yields to the loop
+                if self._freed is None:
+                    self._freed = asyncio.Event()
+                freed = self._freed
+                ticket, need, headroom = self.try_reserve(
+                    version_id, images, buffers_mb, activation_mb)
+                left = deadline - self._loop.time()
+                if ticket is not None or self.in_flight == 0 or left <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(freed.wait(), timeout=left)
+                except asyncio.TimeoutError:
+                    ticket, need, headroom = self.try_reserve(
+                        version_id, images, buffers_mb, activation_mb)
+                    break
+        finally:
+            self.waiting -= 1
+        return ticket, need, headroom
+
+    def _wake(self) -> None:
+        # each release wakes every waiter once; the ones that still do not fit park again
+        freed, self._freed = self._freed, None
+        if freed is not None:
+            freed.set()
+
     def release(self, ticket: Ticket) -> None:
         with self._lock:
             self.reserved_mb = max(0, self.reserved_mb - ticket.reserved_mb)
@@ -233,6 +282,8 @@ class Admission:
             else:
                 self._busy.pop(ticket.version_id, None)
             idle = self.in_flight == 0
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._wake)
         if idle:
             self._trim()
 

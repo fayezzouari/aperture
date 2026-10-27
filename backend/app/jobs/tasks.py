@@ -987,6 +987,15 @@ ROBOFLOW_PRESETS = {
     "yolov8": "yolov8", "yolo11": "yolov8", "yolov11": "yolov8", "yolov5": "yolov5",
     "yolov8-pose": "yolov8-pose", "yolov8-cls": "resnet-imagenet",
 }
+
+
+def _roboflow_preset(model_type: str | None) -> str | None:
+    """The preset for a Roboflow model type, ignoring a YOLO size letter ('yolov11l-seg')."""
+    model_type = model_type or ""
+    return ROBOFLOW_PRESETS.get(model_type) or ROBOFLOW_PRESETS.get(
+        re.sub(r"^(yolov?\d+)[nsmlx](?=-|$)", r"\1", model_type))
+
+
 # Roboflow names its background class `background_class<digits>` and always puts
 # it first. It is the column RF-DETR's export leaves dead.
 BACKGROUND_SENTINEL = "background_class"
@@ -1047,6 +1056,18 @@ def _roboflow_classes(payload: dict) -> list[str]:
     return [str(c) for c in classes]
 
 
+async def _roboflow_served_classes(client: httpx.AsyncClient, project_id: str, version: int,
+                                   api_key: str) -> list:
+    """The class list Roboflow serves a version's weights with, when its metadata lists none.
+
+    Newer versions answer `classes: []` on the version endpoint while the model
+    itself still carries its ordered list - the one inference reads.
+    """
+    resp = await client.get(f"{ROBOFLOW_API}/ort/{project_id}/{version}", params={"api_key": api_key})
+    classes = (resp.json().get("ort") or {}).get("classes") if resp.status_code < 400 else None
+    return classes if isinstance(classes, list) else []
+
+
 def _artifact_format_for(filename: str) -> str:
     suffix = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
     return {".onnx": "onnx", ".pt": "pt", ".pth": "pt", ".torchscript": "torchscript",
@@ -1086,13 +1107,17 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                 resp = await client.get(
                     f"{ROBOFLOW_API}/{workspace}/{project_id}/{version}",
                     params={"api_key": api_key})
-            if resp.status_code >= 400:
-                raise ApiError(
-                    "not_found",
-                    f"Roboflow refused {workspace}/{project_id}/{version}: "
-                    f"HTTP {resp.status_code}. Check the reference and the API key.",
-                )
-            payload = resp.json()
+                if resp.status_code >= 400:
+                    raise ApiError(
+                        "not_found",
+                        f"Roboflow refused {workspace}/{project_id}/{version}: "
+                        f"HTTP {resp.status_code}. Check the reference and the API key.",
+                    )
+                payload = resp.json()
+                detail = payload.get("version") or {}
+                if isinstance(detail, dict) and detail.get("classes") == []:
+                    detail["classes"] = await _roboflow_served_classes(
+                        client, project_id, version, api_key)
             classes = _roboflow_classes(payload)
             detail = payload.get("version") or {}
 
@@ -1109,7 +1134,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
             with tempfile.TemporaryDirectory(prefix="aperture-rfimport-") as tmp:
                 weights, model_type = _roboflow_download(
                     workspace, project_id, version, api_key, tmp)
-                preset = params.get("preset") or ROBOFLOW_PRESETS.get(model_type or "")
+                preset = params.get("preset") or _roboflow_preset(model_type)
                 if not preset:
                     raise ApiError(
                         "invalid_config",
