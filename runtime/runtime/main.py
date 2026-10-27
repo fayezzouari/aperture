@@ -187,18 +187,28 @@ async def infer(body: InferRequest, x_runtime_token: str = Header(None)) -> dict
         infer_requests.labels(str(entry.version), "invalid_image").inc()
         raise _error(400, "invalid_image", str(exc))
 
-    # reserve working memory before decoding anything (see memory.Admission)
+    # reserve working memory before decoding anything, waiting for in-flight
+    # requests to finish when they hold it (see memory.Admission)
     admission = store.requests
-    ticket, need_mb, headroom = admission.try_reserve(
-        body.version_id, len(sizes), request_need_mb(sizes), entry.activation_mb)
+    buffers_mb = request_need_mb(sizes)
+    wait_s = min(settings.request_admission_wait_ms, body.deadline_ms) / 1000
+    waited_from = time.perf_counter()
+    ticket, need_mb, headroom = await admission.reserve(
+        body.version_id, len(sizes), buffers_mb, entry.activation_mb,
+        timeout_s=wait_s, max_waiting=settings.request_admission_max_waiting)
+    # the wait is spent from the caller's deadline, not added to it
+    body.deadline_ms = max(1, body.deadline_ms - int((time.perf_counter() - waited_from) * 1000))
     if ticket is None:
         infer_requests.labels(str(entry.version), "queue_full").inc()
         details = {"needs_mb": need_mb, "headroom_mb": headroom,
                    "inflight_reserved_mb": admission.reserved_mb,
-                   "inflight_requests": admission.in_flight}
-        if need_mb > max(headroom, admission.request_space_mb()):
+                   "inflight_requests": admission.in_flight,
+                   "waiting_requests": admission.waiting}
+        # too large only when the images themselves can never fit: activation for a
+        # second concurrent request is room that frees up, not a property of the payload
+        if buffers_mb > max(headroom, admission.request_space_mb()):
             raise _error(413, "payload_too_large",
-                         f"these images need ~{need_mb} MB of working memory and this replica "
+                         f"these images need ~{buffers_mb} MB of working memory and this replica "
                          f"has {headroom} MB beside its resident models; send smaller images "
                          "or fewer per request", details)
         if admission.in_flight == 0:
@@ -208,9 +218,10 @@ async def infer(body: InferRequest, x_runtime_token: str = Header(None)) -> dict
                          f"these images need ~{need_mb} MB; another replica, a smaller image or "
                          "more runtime memory will serve it", details)
         raise _error(503, "queue_full",
-                     f"this replica has no memory for another request right now "
-                     f"(needs ~{need_mb} MB, {headroom - admission.reserved_mb} MB free); "
-                     "retry shortly", details)
+                     f"this replica has had no memory for another request for {wait_s:.0f} s "
+                     f"or {admission.waiting} are already waiting (needs ~{need_mb} MB, "
+                     f"{headroom - admission.reserved_mb} MB free); retry on another replica",
+                     details)
     try:
         return await _infer_admitted(body, entry, config, blobs, started)
     finally:
