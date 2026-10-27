@@ -78,6 +78,11 @@ def _can_load(runtime, fmt: str | None, artifact: dict | None = None) -> bool:
     return any(name in advertised for name in wanted)
 
 
+def _breadth(runtime) -> int:
+    """How many formats the runtime can load. A broad one is the scarce one."""
+    return len(set((runtime.metrics or {}).get("formats") or _ASSUMED_FORMATS))
+
+
 def _device_fits(deployment: Deployment, runtime: Runtime) -> bool:
     want = (deployment.device or "auto").lower()
     if want == "auto":
@@ -287,9 +292,12 @@ async def _reconcile(session: AsyncSession) -> dict:
                     f"waiting for a runtime with enough memory (needs ~{need} MB, "
                     f"the most any runtime has free is {max(most, 0)} MB)"
                 )
-            # least-loaded first; GPU runtimes win ties for an "auto" deployment
+            # narrowest runtime first, so an ONNX version does not fill the one
+            # runtime a `.pt` can go to; then least-loaded, and GPU runtimes win
+            # ties for an "auto" deployment
             candidates.sort(
-                key=lambda r: (load.get(r.id, 0), 0 if r.device.startswith("cuda") else 1, r.id)
+                key=lambda r: (_breadth(r), load.get(r.id, 0),
+                               0 if r.device.startswith("cuda") else 1, r.id)
             )
             for runtime in candidates[: want - len(current)]:
                 session.add(

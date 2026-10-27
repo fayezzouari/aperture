@@ -13,8 +13,9 @@ from .conftest import add_workspace
 MB = 1024 * 1024
 
 
-async def _runtime(db, runtime_id: str, available_mb: int | None, loaded=None) -> Runtime:
-    metrics = {"formats": ["onnx", "ort"]}
+async def _runtime(db, runtime_id: str, available_mb: int | None, loaded=None,
+                   formats=("onnx", "ort")) -> Runtime:
+    metrics = {"formats": list(formats)}
     if available_mb is not None:
         metrics["memory"] = {"budget_mb": 4000, "used_mb": 4000 - available_mb,
                              "available_mb": available_mb}
@@ -125,3 +126,25 @@ async def test_runtimes_that_do_not_report_memory_are_still_used(db):
 
     await reconcile(db)
     assert await _placed(db, dep) == ["legacy"]
+
+
+async def test_an_onnx_version_leaves_the_torch_runtime_free(db):
+    # the torch runtime has more room and sorts first, but it is the only one
+    # a `.pt` can go to
+    await _runtime(db, "a-torch", available_mb=3000,
+                   formats=("onnx", "ort", "torchscript", "pt", "ultralytics"))
+    await _runtime(db, "b-plain", available_mb=1000)
+    dep = await _deploy(db, "onnx-only", weights_mb=200)  # ~600 MB
+
+    await reconcile(db)
+    assert await _placed(db, dep) == ["b-plain"]
+
+
+async def test_an_onnx_version_still_uses_the_torch_runtime_when_nothing_else_fits(db):
+    await _runtime(db, "torch", available_mb=3000,
+                   formats=("onnx", "ort", "torchscript", "pt", "ultralytics"))
+    await _runtime(db, "plain", available_mb=300)
+    dep = await _deploy(db, "onnx-only", weights_mb=200)  # ~600 MB
+
+    await reconcile(db)
+    assert await _placed(db, dep) == ["torch"]
