@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 from aperture_core.configspec import Backend as BackendKind
-from aperture_core.configspec import ModelConfig
+from aperture_core.configspec import ModelConfig, ResizeMode
 from botocore.exceptions import ClientError
 
 from runtime.backends.base import Backend, BackendLoadError
@@ -170,6 +170,11 @@ class ModelStore:
             return
 
         backend = await asyncio.to_thread(self._build_backend, entry.config, path, assignment)
+        try:
+            _check_input_size(backend, entry.config)
+        except BackendLoadError:
+            await asyncio.to_thread(backend.close)
+            raise
         entry.backend = backend
         entry.batcher = Batcher(
             version_id=entry.version_id, backend=backend,
@@ -405,3 +410,28 @@ def _s3():
                           connect_timeout=10, read_timeout=600),
         )
     return _client
+
+
+def _check_input_size(backend: Backend, config: ModelConfig) -> None:
+    """Refuse a config whose resize the graph cannot take, before warmup runs it.
+
+    Otherwise the first warmup batch fails inside onnxruntime with a list of
+    axis indices, which names neither the config field nor the value to use.
+    """
+    if not backend.io.input_names or config.preprocess.resize.mode == ResizeMode.none:
+        return
+    declared = backend.io.input_shapes.get(backend.io.input_names[0]) or []
+    if len(declared) != 4:
+        return
+    sides = (declared[2], declared[3]) if config.input.layout == "NCHW" \
+        else (declared[1], declared[2])
+    if not all(isinstance(side, int) and side > 0 for side in sides):
+        return
+    resize = config.preprocess.resize
+    if (resize.height, resize.width) != sides:
+        raise BackendLoadError(
+            f"this graph takes {sides[0]}x{sides[1]} images but the config resizes to "
+            f"{resize.height}x{resize.width} - set preprocess.resize (and input) height and "
+            f"width to {sides[0]}x{sides[1]}, or re-export the model at "
+            f"{resize.height}x{resize.width}"
+        )
