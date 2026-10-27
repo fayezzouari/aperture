@@ -803,7 +803,7 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
     principal.require("developer")
     from app.jobs.tasks import parse_roboflow_ref
 
-    workspace, rf_project, rf_version = parse_roboflow_ref(body.ref)
+    workspace, rf_project, rf_version, rf_model = parse_roboflow_ref(body.ref)
 
     if not (body.api_key or settings.roboflow_api_key):
         raise ApiError(
@@ -826,7 +826,7 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
     # lands in the job row, which every viewer can read back
     params = body.model_dump(exclude={"api_key"})
     # `workspace` is Roboflow's; `workspace_id` is the Aperture workspace the model lands in
-    params.update(workspace=workspace, project=rf_project, version=rf_version,
+    params.update(workspace=workspace, project=rf_project, version=rf_version, model=rf_model,
                   workspace_id=principal.workspace_id)
     job = Job(kind="roboflow_import", status="queued",
               created_by=principal.id, params=params)
@@ -835,7 +835,8 @@ async def import_from_roboflow(body: RoboflowImportIn, request: Request,
     # same in the audit trail: recorded as present rather than written down
     await audit.record(session, action="model.import", actor_id=principal.id,
                        actor_label=principal.label, target_type="model",
-                       target_id=job.id, target_label=f"{workspace}/{rf_project}/{rf_version}",
+                       target_id=job.id,
+                       target_label=f"{workspace}/{rf_project}/{rf_model or rf_version}",
                        payload={"ref": body.ref, "slug": body.slug, "preset": body.preset,
                                 "own_api_key": bool(body.api_key)},
                        client_ip=request.client.host if request.client else None)
