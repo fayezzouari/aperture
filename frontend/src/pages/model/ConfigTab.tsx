@@ -41,6 +41,23 @@ type Config = {
 };
 
 const RESIZE_MODES = ["letterbox", "stretch", "shortest_side", "center_crop", "none"];
+// A pasted JSON list (imagenet_classes.json) or an Ultralytics `names` dict is
+// taken as the list it is; anything else is one class per line.
+function parseClasses(text: string): string[] {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const values = Array.isArray(parsed)
+        ? parsed
+        : Object.entries(parsed).sort(([a], [b]) => Number(a) - Number(b)).map(([, name]) => name);
+      if (values.every((value) => typeof value === "string")) return values.map((value) => value.trim()).filter(Boolean);
+    } catch {
+      // not JSON after all; fall through to lines
+    }
+  }
+  return text.split("\n").map((line) => line.trim()).filter(Boolean);
+}
 
 // A charset is not a class list: a space is a real character (PaddleOCR's
 // dictionaries end with one), so nothing here is trimmed. Only empty lines go,
@@ -68,8 +85,11 @@ const DECODERS = ["yolo_v5", "yolo_v8", "yolo_seg", "yolo_pose", "detr", "classi
 export default function ConfigTab({ model, versions, role }: { model: Model; versions: Version[]; role: string }) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const [selected, setSelected] = useState<number>(versions[0]?.version ?? 0);
-  const version = versions.find((item) => item.version === selected) ?? versions[0];
+  // null until picked: the tab can mount before the versions arrive, and a
+  // number frozen then would send every save to a version that does not exist
+  const [picked, setPicked] = useState<number | null>(null);
+  const version = versions.find((item) => item.version === picked) ?? versions[0];
+  const selected = version?.version;
   const editable = Boolean(version) && ["draft", "failed", "validating"].includes(version.status) && can(role, "developer");
 
   const [config, setConfig] = useState<Config | null>(null);
@@ -122,7 +142,7 @@ export default function ConfigTab({ model, versions, role }: { model: Model; ver
                 : `v${version.version} is ${version.status}, so its config is frozen. Create a new version to change preprocessing.`
             }
             action={
-              <select className="select w-auto" value={selected} onChange={(event) => setSelected(Number(event.target.value))}>
+              <select className="select w-auto" value={selected} onChange={(event) => setPicked(Number(event.target.value))}>
                 {versions.map((item) => (
                   <option key={item.id} value={item.version}>
                     v{item.version} · {item.status}
@@ -268,9 +288,9 @@ export default function ConfigTab({ model, versions, role }: { model: Model; ver
                   className="textarea"
                   rows={5}
                   value={config.classes.join("\n")}
-                  onChange={(event) => set("classes", event.target.value.split("\n").map((line) => line.trim()).filter(Boolean))}
+                  onChange={(event) => set("classes", parseClasses(event.target.value))}
                 />
-                <p className="hint">One per line, in the order the model emits them. A mismatch here is the single most common cause of confidently wrong labels.</p>
+                <p className="hint">One per line, or paste a JSON list, in the order the model emits them. A mismatch here is the single most common cause of confidently wrong labels.</p>
               </section>
             )}
 
