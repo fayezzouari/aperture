@@ -108,11 +108,27 @@ export function Tabs({ tabs, active, onChange }: { tabs: { key: string; label: s
 export function EmptyState({ title, body, action, icon }: { title: string; body?: ReactNode; action?: ReactNode; icon?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      {icon ? <div className="mb-3 text-ink-3">{icon}</div> : null}
+      <div className="mb-4 text-ink-3">{icon ?? <Rings />}</div>
       <h3 className="text-sm font-medium text-ink">{title}</h3>
       {body ? <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-ink-3">{body}</p> : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
+  );
+}
+
+/** The landing page's nested openings, at rest: the empty state's one ornament. */
+function Rings() {
+  const ring = (r: number, rot: number) =>
+    Array.from({ length: 7 }, (_, k) => {
+      const a = ((rot + (k * 360) / 7 - 90) * Math.PI) / 180;
+      return `${(24 + r * Math.cos(a)).toFixed(2)},${(24 + r * Math.sin(a)).toFixed(2)}`;
+    }).join(" ");
+  return (
+    <svg width="40" height="40" viewBox="0 0 48 48" fill="none" aria-hidden>
+      <polygon points={ring(9, 0)} stroke="currentColor" strokeWidth="0.8" />
+      <polygon points={ring(15, 12)} stroke="currentColor" strokeWidth="0.8" />
+      <polygon points={ring(22, 24)} stroke="#fff" strokeWidth="1.2" />
+    </svg>
   );
 }
 
