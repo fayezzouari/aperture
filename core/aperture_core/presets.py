@@ -195,6 +195,28 @@ PRESETS: dict[str, dict[str, Any]] = {
             postprocess={"decoder": "classifier_softmax", "top_k": 5, "score_threshold": 0.0},
         ),
     },
+    "yolov8-cls": {
+        "label": "YOLOv8 / YOLO11 classify",
+        "family": "YOLO",
+        "task": "classification",
+        "description": "Shortest side 224, centre crop 224, 0-1 pixels, head already softmaxed.",
+        "config": _cfg(
+            task="classification",
+            backend="onnx",
+            input={"width": 224, "height": 224},
+            preprocess={
+                "resize": {
+                    "mode": "center_crop",
+                    "width": 224,
+                    "height": 224,
+                    "resize_side": 224,
+                    "interpolation": "bilinear",
+                },
+                "normalize": {"scale": 1 / 255.0, "mean": [0, 0, 0], "std": [1, 1, 1]},
+            },
+            postprocess={"decoder": "classifier_probs", "top_k": 5, "score_threshold": 0.0},
+        ),
+    },
     "efficientnet": {
         "label": "EfficientNet (ImageNet)",
         "family": "EfficientNet",
