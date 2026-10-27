@@ -54,6 +54,7 @@ class Decoder(str, Enum):
     detr_seg = "detr_seg"  # the same, plus a per-query mask head (RF-DETR Seg)
     classifier_softmax = "classifier_softmax"
     classifier_sigmoid = "classifier_sigmoid"
+    classifier_probs = "classifier_probs"  # the head already applied softmax (YOLO-cls)
     embedding = "embedding"
     ctc_greedy = "ctc_greedy"  # OCR recognition heads (PaddleOCR rec, CRNN)
     binary_mask = "binary_mask"  # SAM / U-Net style single-mask output
