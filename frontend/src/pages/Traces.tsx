@@ -95,7 +95,7 @@ export default function Traces() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">Inferences</h1>
+        <h1 className="page-title">Inferences</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">
           Every request that reached the gateway. Captured requests carry the image, so you can see exactly what the model saw.
         </p>
