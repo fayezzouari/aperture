@@ -58,7 +58,7 @@ export default function Tokens() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold tracking-tight">Personal access tokens</h1>
+          <h1 className="page-title">Personal access tokens</h1>
           <p className="mt-0.5 text-[12.5px] text-ink-3">
             A token is you: it carries your role and outlives a browser session. Use one per agent or script so each can be revoked on its own.
           </p>
