@@ -985,7 +985,7 @@ ROBOFLOW_PRESETS = {
     "rfdetr-seg-preview": "rf-detr-seg", "rfdetr-base": "rf-detr", "rfdetr": "rf-detr",
     "yolov8-seg": "yolov8-seg", "yolo11-seg": "yolov8-seg", "yolov11-seg": "yolov8-seg",
     "yolov8": "yolov8", "yolo11": "yolov8", "yolov11": "yolov8", "yolov5": "yolov5",
-    "yolov8-pose": "yolov8-pose", "yolov8-cls": "resnet-imagenet",
+    "yolov8-pose": "yolov8-pose", "yolov8-cls": "yolov8-cls",
 }
 
 
@@ -1143,7 +1143,7 @@ async def import_roboflow(ctx: dict, job_id: str, api_key: str | None = None) ->
                         details={"known": sorted(set(ROBOFLOW_PRESETS.values()))},
                     )
                 task = "segmentation" if preset.endswith("-seg") else (
-                    "classification" if preset in ("resnet-imagenet",) else
+                    "classification" if preset in ("resnet-imagenet", "yolov8-cls") else
                     "keypoints" if preset.endswith("-pose") else "detection")
 
                 if model is None:
