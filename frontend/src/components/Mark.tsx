@@ -6,3 +6,12 @@ export function Mark({ size = 20 }: { size?: number }) {
     </svg>
   );
 }
+
+/** The opening's heptagon, vertex up: the guide's chapter marker, used to mark where you are. */
+export function Hepta({ className = "hepta" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" aria-hidden="true">
+      <polygon points="10,0.5 17.43,4.08 19.26,12.11 14.12,18.56 5.88,18.56 0.74,12.11 2.57,4.08" />
+    </svg>
+  );
+}
