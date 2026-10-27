@@ -58,6 +58,11 @@ class RuntimeSettings(BaseSettings):
     # less than this floor (warm-up can under-measure once the arena is primed)
     request_activation_min_mb: int = 16
     request_memory_ceiling_fraction: float = 0.95
+    # A request that does not fit beside the ones in flight waits for them to
+    # finish, up to this long (and never past its own deadline), before it gets
+    # queue_full; at most this many wait at once.
+    request_admission_wait_ms: int = 30_000
+    request_admission_max_waiting: int = 64
     log_level: str = "INFO"
     build: str = "aperture-runtime/0.1.0"
 
