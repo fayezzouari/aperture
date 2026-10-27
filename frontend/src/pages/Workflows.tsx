@@ -33,7 +33,7 @@ export default function Workflows() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold tracking-tight">Workflows</h1>
+          <h1 className="page-title">Workflows</h1>
           <p className="mt-0.5 max-w-2xl text-[12.5px] leading-relaxed text-ink-3">
             Chain several models into one endpoint — detect objects, crop to each one, classify the crops — so products call one URL instead of
             re-implementing the pipeline.
