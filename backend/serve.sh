@@ -14,7 +14,9 @@ if [ "${AP_MIGRATE_ON_START:-true}" = "true" ]; then
 fi
 
 # Uvicorn with several workers: the gateway is IO-bound, so processes buy
-# concurrency without any of them owning a GPU.
+# concurrency without any of them owning a GPU. The supervisor kills a worker
+# that misses a health ping, and its default 5 s turns a busy host into 502s.
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     --workers 4 --timeout-keep-alive 65 --no-access-log \
+    --timeout-worker-healthcheck "${AP_WORKER_HEALTHCHECK_S:-20}" \
     --proxy-headers --forwarded-allow-ips "*"
