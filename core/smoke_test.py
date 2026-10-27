@@ -71,6 +71,13 @@ def logits(b):
     l = rng.random((b, 1000)).astype(np.float32); l[:, 42] = 20.0; return l
 rc = run_pipeline([img], cfgc, fake([logits])).results[0].classifications
 checks.append(("classification top-k", len(rc) == 5 and rc[0].class_id == 42, rc[0].model_dump()))
+# YOLO-cls emits probabilities already; they must come through as they are
+cfgp = preset_config("yolov8-cls")
+def probs(b):
+    p = np.full((b, 1000), 0.1 / 999, np.float32); p[:, 7] = 0.9; return p
+rp = run_pipeline([img], cfgp, fake([probs])).results[0].classifications
+checks.append(("classification probabilities kept", rp[0].class_id == 7
+               and abs(rp[0].score - 0.9) < 1e-4, rp[0].model_dump()))
 
 # embedding
 cfge = preset_config("clip-image")
