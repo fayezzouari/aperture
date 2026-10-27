@@ -28,6 +28,7 @@ scripts/mask-fidelity/.build/
 .mask-fidelity/
 
 # Local model artifacts
+/.model-zoo/
 *.onnx
 *.engine
 *.pt
