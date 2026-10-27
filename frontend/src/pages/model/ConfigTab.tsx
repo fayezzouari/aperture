@@ -31,6 +31,7 @@ type Config = {
     mask_threshold: number;
     normalize_embedding: boolean;
     output_index: Record<string, number>;
+    charset?: string[];
   };
   classes: string[];
   hook: { enabled: boolean; preprocess_source: string | null; postprocess_source: string | null; timeout_ms: number; memory_mb: number };
@@ -40,6 +41,23 @@ type Config = {
 };
 
 const RESIZE_MODES = ["letterbox", "stretch", "shortest_side", "center_crop", "none"];
+
+// A charset is not a class list: a space is a real character (PaddleOCR's
+// dictionaries end with one), so nothing here is trimmed. Only empty lines go,
+// and a pasted JSON list is taken verbatim.
+function parseCharset(text: string): string[] {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) return parsed;
+    } catch {
+      // not JSON after all; fall through to lines
+    }
+  }
+  return text.split("\n").map((line) => line.replace(/\r$/, "")).filter((line) => line !== "");
+}
+
 const DECODERS = ["yolo_v5", "yolo_v8", "yolo_seg", "yolo_pose", "detr", "classifier_softmax", "classifier_sigmoid", "embedding", "ctc_greedy", "binary_mask", "passthrough"];
 
 /**
@@ -232,16 +250,29 @@ export default function ConfigTab({ model, versions, role }: { model: Model; ver
               </div>
             </section>
 
-            <section>
-              <p className="eyebrow mb-2.5">Classes ({config.classes.length})</p>
-              <textarea
-                className="textarea"
-                rows={5}
-                value={config.classes.join("\n")}
-                onChange={(event) => set("classes", event.target.value.split("\n").map((line) => line.trim()).filter(Boolean))}
-              />
-              <p className="hint">One per line, in the order the model emits them. A mismatch here is the single most common cause of confidently wrong labels.</p>
-            </section>
+            {config.postprocess.decoder === "ctc_greedy" ? (
+              <section>
+                <p className="eyebrow mb-2.5">Charset ({config.postprocess.charset?.length ?? 0})</p>
+                <textarea
+                  className="textarea mono"
+                  rows={5}
+                  value={(config.postprocess.charset ?? []).join("\n")}
+                  onChange={(event) => set("postprocess.charset", parseCharset(event.target.value))}
+                />
+                <p className="hint">The model's dictionary, one character per line or a JSON list, in order. Spaces are kept: PaddleOCR dictionaries end with a space, so the model scores charset + 1 classes (the CTC blank).</p>
+              </section>
+            ) : (
+              <section>
+                <p className="eyebrow mb-2.5">Classes ({config.classes.length})</p>
+                <textarea
+                  className="textarea"
+                  rows={5}
+                  value={config.classes.join("\n")}
+                  onChange={(event) => set("classes", event.target.value.split("\n").map((line) => line.trim()).filter(Boolean))}
+                />
+                <p className="hint">One per line, in the order the model emits them. A mismatch here is the single most common cause of confidently wrong labels.</p>
+              </section>
+            )}
 
             <section>
               <p className="eyebrow mb-2.5">Warm-up</p>
