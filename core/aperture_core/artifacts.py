@@ -39,6 +39,9 @@ class ArtifactInfo:
     next_step: str = ""             # what to do about it
     export_snippet: str | None = None
     evidence: list[str] = field(default_factory=list)
+    # the image input's declared shape, e.g. [1, 3, 384, 384]; a dimension the
+    # graph leaves symbolic is its name ("batch", "height", ...)
+    input_shape: list | None = None
 
     @property
     def servable(self) -> bool:
@@ -102,6 +105,7 @@ def inspect_artifact(path: str, *, filename: str | None = None) -> ArtifactInfo:
             kind="onnx", usability=SERVABLE, detail="An ONNX graph.",
             next_step="Validate it against a reference image, then publish.",
             evidence=["onnx protobuf header"],
+            input_shape=_onnx_image_input_shape(path),
         )
     if _looks_safetensors(path, head):
         return ArtifactInfo(
@@ -278,6 +282,119 @@ def _looks_onnx(path: str, head: bytes) -> bool:
     # producer_name, producer_version, domain, model_version, doc_string,
     # graph, opset_import - whichever the producer wrote first
     return head[offset] in (0x12, 0x1A, 0x22, 0x28, 0x32, 0x3A, 0x42)
+
+
+def _onnx_image_input_shape(path: str) -> list | None:
+    """The shape the graph declares for its image input, without the onnx package.
+
+    The API has no onnx install, and a graph can be hundreds of megabytes of
+    initializers, so this walks the protobuf with seeks: ModelProto.graph (7),
+    then GraphProto.input (11), skipping everything else unread. The image is
+    the first rank-4 input; a model with extra inputs (sizes, prompts) lists
+    them alongside it.
+    """
+    try:
+        with open(path, "rb") as fh:
+            end = os.fstat(fh.fileno()).st_size
+            graph = _seek_field(fh, end, 7)
+            if graph is None:
+                return None
+            graph_end = fh.tell() + graph
+            while fh.tell() < graph_end:
+                number, wire = _read_tag(fh)
+                if wire != 2:
+                    _skip(fh, wire)
+                    continue
+                length = _read_varint(fh)
+                if number != 11:
+                    fh.seek(length, os.SEEK_CUR)
+                    continue
+                dims = _value_info_dims(fh.read(length))
+                if dims is not None and len(dims) == 4:
+                    return dims
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _read_varint(stream) -> int:
+    value, shift = 0, 0
+    while True:
+        byte = stream.read(1)
+        if not byte:
+            raise ValueError("truncated varint")
+        value |= (byte[0] & 0x7F) << shift
+        if not byte[0] & 0x80:
+            return value
+        shift += 7
+        if shift > 63:
+            raise ValueError("varint too long")
+
+
+def _read_tag(stream) -> tuple[int, int]:
+    tag = _read_varint(stream)
+    return tag >> 3, tag & 0x07
+
+
+def _skip(stream, wire: int) -> None:
+    if wire == 0:
+        _read_varint(stream)
+    elif wire == 1:
+        stream.seek(8, os.SEEK_CUR)
+    elif wire == 2:
+        stream.seek(_read_varint(stream), os.SEEK_CUR)
+    elif wire == 5:
+        stream.seek(4, os.SEEK_CUR)
+    else:
+        raise ValueError(f"unsupported wire type {wire}")
+
+
+def _seek_field(stream, end: int, wanted: int) -> int | None:
+    """Leave the stream at the payload of the first length-delimited `wanted` field."""
+    while stream.tell() < end:
+        number, wire = _read_tag(stream)
+        if number == wanted and wire == 2:
+            return _read_varint(stream)
+        _skip(stream, wire)
+    return None
+
+
+def _fields(data: bytes):
+    """(number, value) for each field of a small, fully read message."""
+    import io
+
+    stream = io.BytesIO(data)
+    while stream.tell() < len(data):
+        number, wire = _read_tag(stream)
+        if wire == 0:
+            yield number, _read_varint(stream)
+        elif wire == 2:
+            yield number, stream.read(_read_varint(stream))
+        else:
+            _skip(stream, wire)
+
+
+def _value_info_dims(data: bytes) -> list | None:
+    """ValueInfoProto.type (2) -> TypeProto.tensor_type (1) -> shape (2) -> dim (1)."""
+    def first(message: bytes, number: int):
+        return next((v for n, v in _fields(message) if n == number), None)
+
+    type_proto = first(data, 2)
+    tensor = first(type_proto, 1) if isinstance(type_proto, bytes) else None
+    shape = first(tensor, 2) if isinstance(tensor, bytes) else None
+    if not isinstance(shape, bytes):
+        return None
+    dims: list = []
+    for number, dim in _fields(shape):
+        if number != 1 or not isinstance(dim, bytes):
+            continue
+        value = first(dim, 1)
+        if isinstance(value, int):
+            dims.append(value)
+        else:
+            param = first(dim, 2)
+            dims.append(param.decode("utf-8", "replace") if isinstance(param, bytes) else "?")
+    return dims
 
 
 def _looks_safetensors(path: str, head: bytes) -> bool:

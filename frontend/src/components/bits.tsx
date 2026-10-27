@@ -68,7 +68,9 @@ export function JsonView({ value, collapsedDepth = 2 }: { value: unknown; collap
   void collapsedDepth;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-[#08080a]">
+    // contain: inline-size keeps one long line (an OCR string, a base64 mask)
+    // from widening the grid or flex column this sits in; the <pre> scrolls instead
+    <div className="w-full min-w-0 overflow-hidden rounded-lg border border-line bg-[#08080a] [contain:inline-size]">
       <pre className="scroll-x mono px-3 py-2.5 text-[11.5px] leading-relaxed text-ink-2">
         <code>{clipped ? lines.slice(0, 24).join("\n") : text}</code>
       </pre>

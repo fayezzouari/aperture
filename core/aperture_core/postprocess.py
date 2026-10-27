@@ -537,10 +537,24 @@ def decode_ctc(outputs: Outputs, cfg: ModelConfig, geoms: list[Geometry],
     logits = _pick(outputs, cfg, "logits", 0).astype(np.float32)
     if logits.ndim != 3:
         raise DecodeError(f"ctc_greedy expects (B, T, C), got {logits.shape}")
-    if logits.shape[1] < logits.shape[2] and logits.shape[2] > len(cfg.postprocess.charset) + 4:
-        logits = np.transpose(logits, (0, 2, 1))
-    probs = _softmax(logits)
     charset = cfg.postprocess.charset
+    # The class axis is the one sized charset + blank. Guessing it from which
+    # axis is larger fails exactly when the charset is wrong: a (1, 40, 438)
+    # head read with a 95-character charset got transposed, and the decode
+    # turned 438 "time steps" of noise into a paragraph instead of an error.
+    classes = len(charset) + 1
+    if logits.shape[1] == classes and logits.shape[2] != classes:
+        logits = np.transpose(logits, (0, 2, 1))
+    if logits.shape[2] != classes:
+        raise DecodeError(
+            f"the model scores {logits.shape[2]} classes per step but the charset has "
+            f"{len(charset)} characters (+1 CTC blank = {classes}) - set "
+            "postprocess.charset to the dictionary the model was trained with, in order"
+        )
+    # PaddleOCR exports end in a softmax; a second one flattens every score
+    # towards 1/classes while leaving the argmax alone
+    already = logits.min() >= 0 and np.allclose(logits.sum(axis=2), 1.0, atol=1e-3)
+    probs = logits if already else _softmax(logits)
     results = []
     for i in range(batch):
         idx = probs[i].argmax(axis=1)

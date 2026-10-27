@@ -142,6 +142,47 @@ def _apply_artifact(version: ModelVersion, artifact: dict) -> None:
             "warnings": [artifact.get("next_step", "")] if artifact.get("next_step") else [],
             "artifact": artifact,
         }
+    else:
+        config, note = _fit_input_to_graph(version.config or {}, artifact.get("input_shape"))
+        if note:
+            version.config = config
+            version.validation = {
+                "status": "pending",
+                "source": "artifact-inspection",
+                "checked_at": datetime.now(UTC).isoformat(),
+                "warnings": [note],
+                "artifact": artifact,
+            }
+
+
+def _fit_input_to_graph(config: dict, shape: list | None) -> tuple[dict, str | None]:
+    """Resize to what the graph was exported at, not what the config inherited.
+
+    A config comes from a preset or the previous version, so it carries their
+    input size: a 384 RF-DETR uploaded as v2 of a 640 model would otherwise be
+    fed 640 and fail on its first warmup with onnxruntime's INVALID_ARGUMENT.
+    The graph's own declaration is the authority when it fixes both sides; a
+    symbolic height or width means the graph takes any size, so the config stands.
+    """
+    if not shape or len(shape) != 4 or not config:
+        return config, None
+    preprocess = config.get("preprocess") or {}
+    resize = preprocess.get("resize") or {}
+    if resize.get("mode") == "none":
+        return config, None
+    layout = (config.get("input") or {}).get("layout", "NCHW")
+    height, width = (shape[2], shape[3]) if layout == "NCHW" else (shape[1], shape[2])
+    if not all(isinstance(side, int) and side > 0 for side in (height, width)):
+        return config, None
+    before = (resize.get("height", 640), resize.get("width", 640))
+    if before == (height, width):
+        return config, None
+    fitted = {**config,
+              "input": {**(config.get("input") or {}), "height": height, "width": width},
+              "preprocess": {**preprocess,
+                             "resize": {**resize, "height": height, "width": width}}}
+    return fitted, (f"the graph's input is fixed at {height}x{width}, so the config's "
+                    f"{before[0]}x{before[1]} resize was changed to match")
 
 
 async def _autoconvert(session: AsyncSession, model: Model,

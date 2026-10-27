@@ -310,7 +310,10 @@ PRESETS: dict[str, dict[str, Any]] = {
             backend="onnx",
             input={"width": 320, "height": 48, "dynamic_shape": True},
             preprocess={
-                "resize": {"mode": "letterbox", "width": 320, "height": 48, "pad_value": 0},
+                # mid-grey, which normalises to ~0 - what PaddleOCR pads with. Black
+                # (-1) around a centred word reads as strokes: "JOINT" came back
+                # as "cYanmaGnntTlow".
+                "resize": {"mode": "letterbox", "width": 320, "height": 48, "pad_value": 127},
                 "normalize": {"scale": 1 / 255.0, "mean": [0.5, 0.5, 0.5], "std": [0.5, 0.5, 0.5]},
             },
             postprocess={"decoder": "ctc_greedy", "charset": PPOCR_EN_CHARSET},
