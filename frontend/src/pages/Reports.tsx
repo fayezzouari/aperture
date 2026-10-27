@@ -62,7 +62,7 @@ export default function Reports() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">Reports</h1>
+        <h1 className="page-title">Reports</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">Usage per model, version and consumer; error breakdowns; latency trends. Exportable, and schedulable to Slack, email or a webhook.</p>
       </div>
 

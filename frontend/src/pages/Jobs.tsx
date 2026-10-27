@@ -44,7 +44,7 @@ export default function Jobs() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">Jobs</h1>
+        <h1 className="page-title">Jobs</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">
           Long work runs here, never on the inference path: bulk folders, video, format conversion, dataset exports and capture purges.
         </p>

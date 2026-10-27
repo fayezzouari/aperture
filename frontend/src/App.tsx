@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-r
 import { useQueryClient } from "@tanstack/react-query";
 import { api, session } from "./lib/api";
 import { ActiveWorkspace, useInstance, useMe, useWorkspaces } from "./lib/hooks";
-import { Mark } from "./components/Mark";
+import { Hepta, Mark } from "./components/Mark";
 import { ErrorNote, Spinner } from "./components/ui";
 import { FirstWorkspace, WorkspaceSwitcher } from "./components/workspaces";
 
@@ -155,7 +155,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className="flex h-[52px] shrink-0 items-center gap-2.5 px-4">
         <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
           <Mark />
-          <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
+          <span className="font-[family-name:var(--font-display)] text-[16px] font-semibold tracking-[-0.03em]">Aperture</span>
         </Link>
         {instance.data && instance.data.env !== "production" ? (
           <span className="badge ml-auto">{instance.data.env}</span>
@@ -169,19 +169,14 @@ function Shell({ children }: { children: React.ReactNode }) {
       <nav className="scroll-y flex-1 overflow-y-auto px-2 pb-4 pt-2" aria-label="Main">
         {NAV.map((section) => (
           <div key={section.group} className="mt-4 first:mt-0">
-            <p className="px-2.5 pb-1.5 text-[10.5px] font-bold uppercase tracking-[0.08em] text-ink-2">{section.group}</p>
+            <p className="nav-group">{section.group}</p>
             <ul className="flex flex-col gap-px">
               {section.items.map((item) => {
                 const on = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
                 return (
                   <li key={item.to}>
-                    <Link
-                      to={item.to}
-                      aria-current={on ? "page" : undefined}
-                      className={`block rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${
-                        on ? "bg-[#1a1a1e] text-ink" : "text-ink-3 hover:bg-[#111113] hover:text-ink-2"
-                      }`}
-                    >
+                    <Link to={item.to} aria-current={on ? "page" : undefined} className="nav-item">
+                      <Hepta />
                       {item.label}
                     </Link>
                   </li>
@@ -194,7 +189,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
       <div className="shrink-0 border-t border-line p-2">
         <a
-          className="block rounded-md px-2.5 py-1.5 text-[12.5px] text-ink-3 hover:bg-[#111113] hover:text-ink-2"
+          className="block rounded-md px-2.5 py-1.5 text-[12.5px] text-ink-3 hover:bg-raised hover:text-ink-2"
           href="/api/docs"
           target="_blank"
           rel="noreferrer"
@@ -203,7 +198,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </a>
         <div className="relative">
           <button
-            className="w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#111113] hover:text-ink"
+            className="w-full truncate rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-raised hover:text-ink"
             onClick={() => setMenuOpen((open) => !open)}
             aria-expanded={menuOpen}
           >
@@ -214,13 +209,13 @@ function Shell({ children }: { children: React.ReactNode }) {
               <p className="px-2.5 py-1.5 text-[11.5px] text-ink-3">{role}</p>
               <Link
                 to="/account/tokens"
-                className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
+                className="block w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-hover hover:text-ink"
                 onClick={() => setMenuOpen(false)}
               >
                 Personal access tokens
               </Link>
               <button
-                className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
+                className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-hover hover:text-ink"
                 onClick={() => {
                   session.token = null;
                   session.workspace = null;
@@ -243,10 +238,10 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <ActiveWorkspace.Provider value={current ? active : null}>
       <div className="min-h-full">
-        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] border-r border-line bg-black lg:block">{sidebar}</aside>
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] border-r border-line bg-surface lg:block">{sidebar}</aside>
 
         {/* below lg the sidebar becomes a drawer behind a slim top bar */}
-        <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-line bg-black/85 px-4 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-40 flex h-[52px] items-center gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur lg:hidden">
           <button className="btn btn-sm btn-ghost" onClick={() => setDrawerOpen(true)} aria-label="Open navigation" aria-expanded={drawerOpen}>
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
               <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -254,13 +249,13 @@ function Shell({ children }: { children: React.ReactNode }) {
           </button>
           <Link to="/" className="flex items-center gap-2.5" aria-label="Aperture home">
             <Mark />
-            <span className="text-[14px] font-semibold tracking-tight">Aperture</span>
+            <span className="font-[family-name:var(--font-display)] text-[16px] font-semibold tracking-[-0.03em]">Aperture</span>
           </Link>
         </header>
         {drawerOpen ? (
           <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDrawerOpen(false)} />
-            <aside className="absolute inset-y-0 left-0 w-[260px] max-w-[85vw] border-r border-line bg-black">{sidebar}</aside>
+            <aside className="absolute inset-y-0 left-0 w-[260px] max-w-[85vw] border-r border-line bg-surface">{sidebar}</aside>
           </div>
         ) : null}
 

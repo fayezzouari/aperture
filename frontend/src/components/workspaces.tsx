@@ -42,7 +42,7 @@ export function WorkspaceSwitcher({
   return (
     <div className="relative" ref={box}>
       <button
-        className="flex h-8 w-full items-center gap-2 rounded-md border border-line px-2.5 text-left text-[12.5px] text-ink hover:bg-[#111113]"
+        className="flex h-8 w-full items-center gap-2 rounded-md border border-line px-2.5 text-left text-[12.5px] text-ink hover:bg-raised"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -64,7 +64,7 @@ export function WorkspaceSwitcher({
                   key={workspace.slug}
                   role="option"
                   aria-selected={on}
-                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] hover:bg-[#1a1a1e] hover:text-ink ${on ? "text-ink" : "text-ink-2"}`}
+                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] hover:bg-hover hover:text-ink ${on ? "text-ink" : "text-ink-2"}`}
                   onClick={() => {
                     setOpen(false);
                     onSwitch(workspace.slug);
@@ -80,7 +80,7 @@ export function WorkspaceSwitcher({
             <>
               {workspaces.length ? <div className="my-1 border-t border-line" /> : null}
               <button
-                className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-[#1a1a1e] hover:text-ink"
+                className="w-full rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-ink-2 hover:bg-hover hover:text-ink"
                 onClick={() => {
                   setOpen(false);
                   setCreating(true);

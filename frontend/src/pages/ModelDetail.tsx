@@ -100,7 +100,7 @@ export default function ModelDetail() {
             <span>/</span>
             <span className="mono text-ink-2">{data.slug}</span>
           </nav>
-          <h1 className="mt-1 flex items-center gap-2.5 text-[19px] font-semibold tracking-tight">
+          <h1 className="mt-1 flex items-center gap-2.5 page-title">
             {data.name}
             <Badge>{data.task}</Badge>
           </h1>

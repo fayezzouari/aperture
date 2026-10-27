@@ -1,6 +1,10 @@
 /* The landing page's opening (landing/src/components/Spiral.tsx): rings of
    heptagons widening and twisting outward from an empty centre, the fourth one
-   bright. Drawn behind the sign-in form, which sits in the centre. */
+   bright. Drawn behind the sign-in form, which sits in the centre.
+
+   Each layer is its own <svg> rather than a <g> in one: an <svg> element can
+   be a compositor layer, so the settle-in turns pixels the GPU already has
+   instead of repainting every ring (and the panel's backdrop blur) per frame. */
 const CX = 960;
 const CY = 540;
 const RINGS = 44;
@@ -24,9 +28,9 @@ function fade(i: number): number {
 export function Opening() {
   const per = Math.ceil(RINGS / LAYERS);
   return (
-    <svg className="opening" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <div className="opening" aria-hidden="true">
       {Array.from({ length: LAYERS }, (_, l) => (
-        <g key={l} className="opening-layer" style={{ ["--l" as string]: l }}>
+        <svg key={l} className="opening-layer" style={{ ["--l" as string]: l }} viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
           {Array.from({ length: Math.min(RINGS, (l + 1) * per) - l * per }, (_, j) => {
             const i = l * per + j;
             const production = i === PRODUCTION_RING;
@@ -39,8 +43,8 @@ export function Opening() {
               />
             );
           })}
-        </g>
+        </svg>
       ))}
-    </svg>
+    </div>
   );
 }

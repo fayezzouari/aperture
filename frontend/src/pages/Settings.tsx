@@ -26,7 +26,7 @@ export default function Settings() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">Settings</h1>
+        <h1 className="page-title">Settings</h1>
         <p className="mt-0.5 text-[12.5px] text-ink-3">
           The active workspace and its members, then users, capture and retention for the whole instance. Your instance role is{" "}
           <span className="text-ink-2">{role}</span>.

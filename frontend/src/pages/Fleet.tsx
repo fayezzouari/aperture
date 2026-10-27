@@ -38,7 +38,7 @@ export default function Fleet() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[19px] font-semibold tracking-tight">Fleet</h1>
+          <h1 className="page-title">Fleet</h1>
           <p className="mt-0.5 text-[12.5px] text-ink-3">
             Runtimes hold model versions resident. They pull their assignments on every heartbeat, so scaling a deployment needs no restart.
           </p>
