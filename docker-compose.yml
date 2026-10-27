@@ -224,6 +224,9 @@ services:
       AP_LOG_LEVEL: ${AP_LOG_LEVEL:-INFO}
       # 0 = 80% of mem_limit below; the runtime refuses versions past it
       AP_MEMORY_BUDGET_MB: ${AP_RUNTIME_MEMORY_BUDGET_MB:-0}
+      # onnxruntime otherwise sizes its pool to every core on the host, so one
+      # runtime warming a model takes the CPU the API needs to answer at all
+      AP_ONNX_THREADS: ${AP_ONNX_THREADS:-2}
     volumes:
       - runtime-cache:/var/cache/aperture
     # A hard ceiling per runtime. Without one, runtimes that together outgrow
@@ -232,6 +235,11 @@ services:
     # RUNTIME_REPLICAS x RUNTIME_MEM_LIMIT under what the host (or Docker
     # Desktop's VM) has, with room for the API, worker and Postgres.
     mem_limit: ${RUNTIME_MEM_LIMIT:-3g}
+    # The CPU counterpart: runtimes loading models back to back starved the API
+    # until uvicorn killed its workers for missing health checks. Keep
+    # RUNTIME_REPLICAS x RUNTIME_CPUS (plus the torch runtime) below the host's
+    # cores so the API, worker and Postgres always have some.
+    cpus: ${RUNTIME_CPUS:-2.5}
     # Replicas are how you add serving capacity; the scheduler spreads a
     # deployment's replicas across distinct runtime containers.
     deploy:
@@ -269,10 +277,14 @@ services:
       AP_CACHE_MAX_GB: ${AP_CACHE_MAX_GB:-32}
       AP_LOG_LEVEL: ${AP_LOG_LEVEL:-INFO}
       AP_MEMORY_BUDGET_MB: ${AP_RUNTIME_TORCH_MEMORY_BUDGET_MB:-0}
+      AP_ONNX_THREADS: ${AP_ONNX_THREADS:-2}
+      # torch sizes its intra-op pool from this, read once at import
+      OMP_NUM_THREADS: ${RUNTIME_TORCH_THREADS:-2}
     volumes:
       - runtime-torch-cache:/var/cache/aperture
     # torch itself holds ~1 GB before any model, hence the larger default
     mem_limit: ${RUNTIME_TORCH_MEM_LIMIT:-4g}
+    cpus: ${RUNTIME_TORCH_CPUS:-2}
 
   mcp:
     # Aperture's MCP tools over streamable HTTP, reached through the web edge at
